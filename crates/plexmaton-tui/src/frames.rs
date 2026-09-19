@@ -666,6 +666,28 @@ mod tests {
         }
     }
 
+    /// MDL-1/ui-ux §responsive interaction: what a model switch cost is legible at every width,
+    /// and reads as a receipt rather than as a defect.
+    #[test]
+    fn the_degraded_history_frames_match_their_fixtures() {
+        let mut state = canonical_state();
+        state.report_degraded_history();
+        for (width_name, width, height) in PRODUCT_WIDTHS {
+            let (surfaces, buffer) = draw_frame(&state, &Palette::default(), width, height);
+            let bounds = surfaces
+                .get(SurfaceId::Notices)
+                .expect("notice strip")
+                .bounds;
+            let drawn = crate::test_support::snapshot_text(&buffer, bounds);
+            assert!(
+                drawn.contains("another model"),
+                "{width_name}: the switch's cost is absent"
+            );
+            assert_eq!(bounds, Rect::new(0, 0, width, 4));
+            crate::test_support::assert_frame(&format!("degraded-history-{width_name}"), &drawn);
+        }
+    }
+
     /// JRN-7/ui-ux §responsive interaction: failed cleanup remains one bounded visible strip.
     #[test]
     fn the_cleanup_failure_frames_match_their_fixtures() {

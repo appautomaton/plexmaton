@@ -29,7 +29,12 @@ it after the last line and is why the draft previously had no insertion point to
 
 **COM-3 — Submit is a command, not a write.** Normal submission hands text to the runtime and clears the
 draft; `Ctrl-J`, `Shift-Enter` and `Alt-Enter` insert a newline without submission. The message reaches the screen only as the events the runtime emits back. A draft that is
-only whitespace submits nothing and is left alone. Rejected: `ratatui-textarea`, which consumes
+only whitespace submits nothing and is left alone. A runtime that refuses the command answers it:
+the exact text returns to the draft it was sent from and the refusal opens one notice, because the
+typed reasons a runtime declines — a request it cannot encode, a conversation another controller
+owns, a shutdown already begun — are things the user can act on, and none of them is worth the
+conversation on screen. Rejected: letting a refusal leave the composition root, which ended the
+process and cost the user every row of history to report one sentence. Rejected: `ratatui-textarea`, which consumes
 terminal events when only the router may (INV-1); and the projection appending its own transcript,
 which puts two writers on one numbered stream.
 
@@ -99,6 +104,7 @@ Ctrl-C ──▶ non-empty draft ──▶ clear
 | `Backspace` on an empty draft | No change is reported, so it costs no repaint |
 | Submitting before any agent exists | The text stays in the draft; there is no session to deliver into |
 | Runtime returns text its boundary could not claim | The composition root restores it to the addressed editable draft without inventing a transcript item |
+| Runtime refuses the submission outright | The same restoration, plus one notice naming the typed reason; the session is not ended |
 | A text intent arriving under navigation focus | Cannot happen and is not re-checked: the router reads focus from the same state (INV-2) |
 | Draft taller than its window | The window follows the caret; `↑`/`↓` and the wheel move it one row at a time and stop at the ends |
 

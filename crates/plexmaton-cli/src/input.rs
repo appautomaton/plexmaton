@@ -1,5 +1,5 @@
 //! Translation between user intents and runtime ownership reports; no transcript is authored here.
-use anyhow::{Context as _, bail};
+use anyhow::bail;
 use plexmaton_agent::Input;
 use plexmaton_core::AgentId;
 use plexmaton_runtime::{CleanupFailure, DispatchReport, LiveRuntime, PersistenceFailure};
@@ -78,6 +78,10 @@ pub(super) async fn dispatch_live(
         bail!("the TUI produced an input reserved for the producer");
     }
     let to = addressed.to.clone();
+    // Kept before the input moves, because a refusal has to give the user's own words back and the
+    // runtime cannot: the text left this process the moment `submit` took it.
+    let returnable = returnable_text(&addressed.input);
+    let skill = addressed.skill.clone();
     let report = match addressed.skill {
         Some(name) => {
             runtime
@@ -85,10 +89,37 @@ pub(super) async fn dispatch_live(
                 .await
         }
         None => runtime.submit(addressed.to, addressed.input).await,
-    }
-    .context("dispatch user input")?;
+    };
+    let report = match report {
+        Ok(report) => report,
+        Err(refusal) => {
+            // A refused dispatch is not a defect the user can do nothing about, and it must not
+            // end the session. Until this returned `Err`, the typed error left the composition
+            // root by `?` and took the terminal with it: a request the runtime could not encode
+            // cost the whole conversation on screen, and the text the user had typed with it.
+            if let Some(text) = returnable {
+                workspace.return_skill_input(to, text, skill);
+            }
+            workspace.report_dispatch_refusal(refusal.to_string());
+            return Ok(());
+        }
+    };
     apply_report(runtime, workspace, to, report);
     Ok(())
+}
+
+/// The user's own words, when this input carries any.
+///
+/// Producer inputs and decisions carry none: there is nothing to hand back, and inventing a draft
+/// out of an approval would put text in the composer the user never typed.
+fn returnable_text(input: &Input) -> Option<String> {
+    match input {
+        Input::Submitted { text }
+        | Input::SkillSubmitted { text, .. }
+        | Input::Steered { text }
+        | Input::SkillSteered { text, .. } => Some(text.clone()),
+        _ => None,
+    }
 }
 
 /// All live report paths consume metadata acknowledgements against the runtime's durable snapshot.

@@ -395,8 +395,61 @@ fn prv_1_chat_refuses_cross_kind_order_its_wire_cannot_represent() {
     );
 }
 
+/// One reply holding every block kind degradation has to decide about, under `compatible_with`.
+/// Blocks 0, 1 and 3 finished and carry a sidecar; block 2 was interrupted before its own arrived.
+fn degradable_request(compatible_with: ReplayCompatibility) -> ModelRequest {
+    let attachment = |payload: &str| {
+        ProviderReplay::new(compatible_with.clone(), payload.to_owned())
+            .unwrap_or_else(|error| panic!("fixture replay: {error:?}"))
+    };
+    let replay = AssistantReplay::from_positioned([
+        (0, attachment(r#"{"type":"message","id":"msg_1"}"#)),
+        (
+            1,
+            attachment(r#"{"type":"reasoning","encrypted_content":"secret-ciphertext"}"#),
+        ),
+        (
+            3,
+            attachment(r#"{"type":"reasoning","encrypted_content":"more-ciphertext"}"#),
+        ),
+    ])
+    .unwrap_or_else(|error| panic!("fixture assistant replay: {error}"));
+    let output = AssistantOutput::new(
+        vec![
+            AssistantBlock::Text {
+                item_id: transcript_item("visible"),
+                text: "Visible answer.".to_owned(),
+            },
+            AssistantBlock::Reasoning {
+                item_id: transcript_item("finished"),
+                text: "A finished thought.".to_owned(),
+            },
+            AssistantBlock::Reasoning {
+                item_id: transcript_item("interrupted"),
+                text: "An interrupted thought.".to_owned(),
+            },
+            AssistantBlock::ReplayOnly {
+                item_id: transcript_item("opaque"),
+            },
+        ],
+        replay,
+    )
+    .unwrap_or_else(|error| panic!("fixture assistant output: {error}"));
+    ModelRequest {
+        session_id: plexmaton_core::ConversationId::new("fixture-session")
+            .unwrap_or_else(|error| panic!("session: {error}")),
+        atoms: vec![
+            ContextAtom::assistant(session_entry("degradable-output"), output)
+                .unwrap_or_else(|error| panic!("fixture context atom: {error}")),
+        ],
+    }
+}
+
+/// PRV-3: a mismatch on any one of the four compatibility fields costs the replay, never the turn.
+/// A finished thought is carried as visible text; an interrupted one and a block that was only its
+/// sidecar are left out; no opaque payload reaches the wire.
 #[test]
-fn prv_3_replay_compatibility_covers_route_codec_revision_and_model_family() {
+fn prv_3_any_of_the_four_compatibility_axes_degrades_rather_than_refusing() {
     let selected = profile(ModelApi::OpenaiResponses);
     let expected = selected.replay_compatibility();
     let cases = [
@@ -428,12 +481,204 @@ fn prv_3_replay_compatibility_covers_route_codec_revision_and_model_family() {
     ];
 
     for incompatible in cases {
-        let request = opaque_replay_request(incompatible.clone());
-        assert!(matches!(
-            encode_request(&selected, &request, &[], None),
-            Err(plexmaton_provider::EncodeError::IncompatibleReplay { found, expected: actual })
-                if *found == incompatible && *actual == expected
-        ));
+        assert_ne!(incompatible, expected, "each case must differ in one field");
+        let request = degradable_request(incompatible);
+        let encoded = encode_request(&selected, &request, &[], None)
+            .unwrap_or_else(|error| panic!("a foreign replay must degrade, not refuse: {error}"));
+        let body = serde_json::to_string(&encoded)
+            .unwrap_or_else(|error| panic!("encoded request: {error}"));
+        assert!(
+            !body.contains("ciphertext"),
+            "no opaque payload may reach a model that cannot replay it"
+        );
+        assert!(
+            !body.contains("An interrupted thought."),
+            "an unfinished thought is not something the model said"
+        );
+        let texts: Vec<_> = encoded["input"]
+            .as_array()
+            .unwrap_or_else(|| panic!("Responses input is an array"))
+            .iter()
+            .filter_map(|item| item["content"][0]["text"].as_str())
+            .collect();
+        assert_eq!(texts, ["Visible answer.", "A finished thought."]);
+    }
+}
+
+/// A compatibility no supported dialect owns, so every one of them has to degrade.
+fn foreign_compatibility() -> ReplayCompatibility {
+    let expected = profile(ModelApi::OpenaiResponses).replay_compatibility();
+    ReplayCompatibility::new(
+        replay_owner("another-route"),
+        expected.codec().clone(),
+        expected.codec_revision(),
+        expected.model_family().clone(),
+    )
+}
+
+/// A tool turn whose replay came from elsewhere, with the pipe-form id OpenAI Responses issues and
+/// Anthropic's charset refuses.
+fn foreign_call_batch() -> ModelRequest {
+    let call = tool_call("call_5Xy|fc_0198abcdef0123456789abcdef", "notes.txt");
+    let replay = AssistantReplay::from_positioned([(
+        0,
+        ProviderReplay::new(
+            foreign_compatibility(),
+            r#"{"id":"fc_1","status":"completed"}"#.to_owned(),
+        )
+        .unwrap_or_else(|error| panic!("fixture replay: {error:?}")),
+    )])
+    .unwrap_or_else(|error| panic!("fixture assistant replay: {error}"));
+    let output = AssistantOutput::new(
+        vec![AssistantBlock::ToolCall {
+            item_id: transcript_item("foreign-call"),
+            call: call.clone(),
+        }],
+        replay,
+    )
+    .unwrap_or_else(|error| panic!("fixture assistant output: {error}"));
+    let batch = ToolBatch::new(
+        output,
+        vec![ToolBatchResult::new(
+            call.call_id.clone(),
+            ToolOutcome::Succeeded {
+                output: "ok".to_owned(),
+            },
+        )],
+    )
+    .unwrap_or_else(|error| panic!("fixture tool batch: {error}"));
+    ModelRequest {
+        session_id: plexmaton_core::ConversationId::new("fixture-session")
+            .unwrap_or_else(|error| panic!("session: {error}")),
+        atoms: vec![
+            ContextAtom::tool_batch(vec![session_entry("foreign-batch")], batch)
+                .unwrap_or_else(|error| panic!("fixture context atom: {error}")),
+        ],
+    }
+}
+
+/// PRV-3: a degraded call and the result answering it are written by two different pieces of the
+/// encoder, so they take the id from one rule. A result pointing at a call the request no longer
+/// contains is the failure this forbids.
+#[test]
+fn prv_3_a_degraded_call_and_its_result_keep_one_identity() {
+    let request = foreign_call_batch();
+    let original = "call_5Xy|fc_0198abcdef0123456789abcdef";
+    for (api, call_path, result_path) in [
+        (
+            ModelApi::AnthropicMessages,
+            ["messages", "0", "content", "0", "id"].as_slice(),
+            ["messages", "1", "content", "0", "tool_use_id"].as_slice(),
+        ),
+        (
+            ModelApi::OpenaiChatCompletions,
+            ["messages", "0", "tool_calls", "0", "id"].as_slice(),
+            ["messages", "1", "tool_call_id"].as_slice(),
+        ),
+        (
+            ModelApi::OpenaiResponses,
+            ["input", "0", "call_id"].as_slice(),
+            ["input", "1", "call_id"].as_slice(),
+        ),
+    ] {
+        let encoded = encode_request(&profile(api), &request, &[], None)
+            .unwrap_or_else(|error| panic!("{api:?} must degrade a foreign call: {error}"));
+        let at = |path: &[&str]| {
+            path.iter()
+                .fold(&encoded, |value, key| match key.parse::<usize>() {
+                    Ok(index) => &value[index],
+                    Err(_) => &value[*key],
+                })
+                .as_str()
+                .unwrap_or_else(|| panic!("{api:?} has no string at {path:?} in {encoded}"))
+                .to_owned()
+        };
+        let (call, result) = (at(call_path), at(result_path));
+        assert_eq!(call, result, "{api:?} must pair the call with its result");
+        assert_ne!(
+            call, original,
+            "{api:?} must not carry an id its provider refuses"
+        );
+        assert!(
+            call.len() <= 40
+                && call
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'),
+            "{call} must be an id every dialect accepts"
+        );
+    }
+}
+
+/// PRV-3: Gemini's thought flag and upstream call id are only legal beside the signature that
+/// authenticates them, so a degraded part carries neither and its response pairs positionally.
+#[test]
+fn prv_3_a_degraded_gemini_call_carries_neither_signature_nor_upstream_id() {
+    let encoded = encode_request(
+        &profile(ModelApi::GoogleGenerateContent),
+        &foreign_call_batch(),
+        &[],
+        None,
+    )
+    .unwrap_or_else(|error| panic!("Gemini must degrade a foreign call: {error}"));
+    let call = &encoded["contents"][0]["parts"][0];
+    assert_eq!(call["functionCall"]["name"], "read_file");
+    assert!(call["functionCall"].get("id").is_none());
+    assert!(call.get("thoughtSignature").is_none());
+    assert!(call.get("thought").is_none());
+    let response = &encoded["contents"][1]["parts"][0]["functionResponse"];
+    assert_eq!(response["name"], "read_file");
+    assert!(response.get("id").is_none());
+}
+
+/// PRV-3: a block that was only ever its sidecar has nothing left once the sidecar is discarded.
+/// Every dialect must decline to send a message rather than send an empty one.
+#[test]
+fn prv_3_an_output_that_was_only_its_replay_degrades_to_no_message() {
+    let replay = AssistantReplay::from_positioned([(
+        0,
+        ProviderReplay::new(
+            foreign_compatibility(),
+            r#"{"type":"reasoning","encrypted_content":"secret-ciphertext"}"#.to_owned(),
+        )
+        .unwrap_or_else(|error| panic!("fixture replay: {error:?}")),
+    )])
+    .unwrap_or_else(|error| panic!("fixture assistant replay: {error}"));
+    let output = AssistantOutput::new(
+        vec![AssistantBlock::ReplayOnly {
+            item_id: transcript_item("opaque-only"),
+        }],
+        replay,
+    )
+    .unwrap_or_else(|error| panic!("fixture assistant output: {error}"));
+    let request = ModelRequest {
+        session_id: plexmaton_core::ConversationId::new("fixture-session")
+            .unwrap_or_else(|error| panic!("session: {error}")),
+        atoms: vec![
+            ContextAtom::assistant(session_entry("opaque-output"), output)
+                .unwrap_or_else(|error| panic!("fixture context atom: {error}")),
+        ],
+    };
+    for (api, turns) in [
+        (ModelApi::AnthropicMessages, "messages"),
+        (ModelApi::OpenaiChatCompletions, "messages"),
+        (ModelApi::GoogleGenerateContent, "contents"),
+        (ModelApi::OpenaiResponses, "input"),
+    ] {
+        let encoded = encode_request(&profile(api), &request, &[], None)
+            .unwrap_or_else(|error| panic!("{api:?} must degrade an opaque output: {error}"));
+        let body = serde_json::to_string(&encoded)
+            .unwrap_or_else(|error| panic!("encoded request: {error}"));
+        assert!(!body.contains("secret-ciphertext"), "{api:?} leaked replay");
+        let assistant_turns = encoded[turns]
+            .as_array()
+            .unwrap_or_else(|| panic!("{api:?} {turns} is an array"))
+            .iter()
+            .filter(|turn| turn["role"] == "assistant" || turn["role"] == "model");
+        assert_eq!(
+            assistant_turns.count(),
+            0,
+            "{api:?} must send no reply at all, not an empty one: {encoded}"
+        );
     }
 }
 
@@ -680,32 +925,6 @@ fn tool_call(call_id: &str, path: &str) -> ToolCall {
             .unwrap_or_else(|error| panic!("fixture tool call id: {error}")),
         name: "read_file".to_owned(),
         arguments: serde_json::json!({ "path": path }).to_string(),
-    }
-}
-
-fn opaque_replay_request(compatible_with: ReplayCompatibility) -> ModelRequest {
-    let replay = ProviderReplay::new(
-        compatible_with,
-        r#"{"type":"reasoning","encrypted_content":"ciphertext"}"#.to_owned(),
-    )
-    .unwrap_or_else(|error| panic!("fixture replay: {error:?}"));
-    let replay = AssistantReplay::from_positioned([(0, replay)])
-        .unwrap_or_else(|error| panic!("fixture assistant replay: {error}"));
-    let output = AssistantOutput::new(
-        vec![AssistantBlock::Reasoning {
-            item_id: transcript_item("private-reasoning"),
-            text: String::new(),
-        }],
-        replay,
-    )
-    .unwrap_or_else(|error| panic!("fixture assistant output: {error}"));
-    ModelRequest {
-        session_id: plexmaton_core::ConversationId::new("fixture-session")
-            .unwrap_or_else(|error| panic!("session: {error}")),
-        atoms: vec![
-            ContextAtom::assistant(session_entry("private-output"), output)
-                .unwrap_or_else(|error| panic!("fixture context atom: {error}")),
-        ],
     }
 }
 

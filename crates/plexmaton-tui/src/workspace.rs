@@ -56,6 +56,7 @@ mod markdown_tests;
 mod math_tests;
 #[cfg(test)]
 mod model_tests;
+mod notices;
 mod paint;
 #[cfg(test)]
 mod palette_tests;
@@ -328,11 +329,6 @@ impl Workspace {
         receipt: plexmaton_core::SavedProjectPermission,
     ) {
         self.state.report_saved_project_permission(to, receipt);
-    }
-
-    /// Shows one bounded skill discovery, load, or activation diagnostic.
-    pub fn report_skill_diagnostic(&mut self, message: String) {
-        self.state.report_skill_diagnostic(message);
     }
 
     /// Confirms successful restoration, including any file-tail repair, outside the journal.

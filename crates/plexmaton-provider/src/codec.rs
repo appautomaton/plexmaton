@@ -3,7 +3,7 @@
 use plexmaton_agent::{
     AdmissionRefusal, MAX_ASSISTANT_TEXT_BYTES, MAX_PROVIDER_REPLAY_BYTES,
     MAX_REQUESTED_TOOL_ARGUMENT_BYTES, MAX_TOOL_IDENTITY_BYTES, ModelError, ModelEvent,
-    ModelOutputPosition, ModelRequest, ProviderReplayError, ReplayCompatibility, SkillActivation,
+    ModelOutputPosition, ModelRequest, ProviderReplayError, SkillActivation,
     ToolCancellationReason, ToolOutcome,
 };
 use plexmaton_core::{TokenCounts, TokenUsage, ToolCallId};
@@ -138,13 +138,6 @@ pub enum EncodeError {
     OpaqueReplayInChat,
     #[error("ordered assistant blocks cannot be represented by Chat Completions")]
     UnrepresentableChatOrder,
-    #[error(
-        "opaque replay is incompatible with the selected provider route, codec revision, or model family"
-    )]
-    IncompatibleReplay {
-        found: Box<ReplayCompatibility>,
-        expected: Box<ReplayCompatibility>,
-    },
     #[error("stored provider replay is not valid JSON: {0}")]
     InvalidReplayJson(#[source] serde_json::Error),
     #[error("stored provider replay does not match the selected dialect's item grammar")]

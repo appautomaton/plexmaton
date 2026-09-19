@@ -169,6 +169,18 @@ pub(crate) fn notices(state: &ViewState, palette: &Palette) -> Vec<Line<'static>
                     Role::Failure,
                     format!("Skills · {}", inert_inline(message)),
                 ),
+                NoticeView::DispatchRefused { message } => (
+                    "[send] ",
+                    Role::Failure,
+                    format!("Not sent · {}", inert_inline(message)),
+                ),
+                // Muted, not Failure: the switch worked. This says what it cost.
+                NoticeView::DegradedHistory => (
+                    "[model] ",
+                    Role::Muted,
+                    "Earlier replies came from another model — their reasoning is now plain text."
+                        .to_owned(),
+                ),
             };
             Line::from(vec![
                 Span::styled(marker, palette.style(role)),

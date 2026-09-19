@@ -10,6 +10,7 @@ mod collaboration;
 mod compaction;
 mod config;
 mod cost;
+mod degrade;
 mod environment;
 mod gemini;
 mod messages;
@@ -33,5 +34,6 @@ pub use config::{
     ModelSelection, PromptCache, ResolvedModel, TokenEstimator, resolve_api_key, resolve_home,
 };
 pub use cost::request_cost;
+pub use degrade::degrades_replay;
 pub use environment::request_environment;
 pub use sse::{SseDecodeError, drive_sse};

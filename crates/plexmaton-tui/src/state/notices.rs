@@ -13,6 +13,19 @@ use super::{ReduceError, ViewState};
 const CAPACITY: usize = 32;
 const MAX_SKILL_DIAGNOSTIC_BYTES: usize = 1024;
 
+/// A notice is display-only, so its text is cut to a bound rather than refused: a diagnostic the
+/// log declined to hold would be a failure with no way to learn of it.
+fn bounded(mut message: String) -> String {
+    if message.len() > MAX_SKILL_DIAGNOSTIC_BYTES {
+        let mut end = MAX_SKILL_DIAGNOSTIC_BYTES;
+        while !message.is_char_boundary(end) {
+            end = end.saturating_sub(1);
+        }
+        message.truncate(end);
+    }
+    message
+}
+
 /// A producer-contract defect surfaced without interrupting the user's work.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NoticeView {
@@ -29,6 +42,10 @@ pub enum NoticeView {
     CleanupFailed(CleanupNotice),
     /// A project or user skill could not be discovered, loaded, or activated.
     SkillDiagnostic { message: String },
+    /// Input the user submitted could not be handed to the runtime, and came back to the draft.
+    DispatchRefused { message: String },
+    /// The selected model reads earlier replies as text, because their own form is not its own.
+    DegradedHistory,
 }
 
 /// What the session writer knows about a failed submission append.
@@ -96,15 +113,32 @@ impl ViewState {
     }
 
     /// Records bounded display-only skill diagnostics outside semantic model context (SKL-5).
-    pub(crate) fn report_skill_diagnostic(&mut self, mut message: String) {
-        if message.len() > MAX_SKILL_DIAGNOSTIC_BYTES {
-            let mut end = MAX_SKILL_DIAGNOSTIC_BYTES;
-            while !message.is_char_boundary(end) {
-                end = end.saturating_sub(1);
-            }
-            message.truncate(end);
-        }
-        self.notices.push(NoticeView::SkillDiagnostic { message });
+    pub(crate) fn report_skill_diagnostic(&mut self, message: String) {
+        self.notices.push(NoticeView::SkillDiagnostic {
+            message: bounded(message),
+        });
+        self.touch();
+    }
+
+    /// Records a refused dispatch, which is the runtime declining input rather than a defect the
+    /// user can do nothing about.
+    ///
+    /// The alternative was what this replaced: the typed error left the composition root by `?`
+    /// and ended the process, so a request the runtime could not encode cost the user the whole
+    /// conversation on screen. What they lose now is the request.
+    pub(crate) fn report_dispatch_refusal(&mut self, message: String) {
+        self.notices.push(NoticeView::DispatchRefused {
+            message: bounded(message),
+        });
+        self.touch();
+    }
+
+    /// Records what a model switch cost, after it succeeded (MDL-1).
+    ///
+    /// It carries no text of its own because there is only one thing to say, and saying it from
+    /// here keeps the sentence in one place rather than in whichever caller happened to notice.
+    pub(crate) fn report_degraded_history(&mut self) {
+        self.notices.push(NoticeView::DegradedHistory);
         self.touch();
     }
 }
@@ -112,6 +146,39 @@ impl ViewState {
 #[cfg(test)]
 mod tests {
     use super::{CAPACITY, MAX_SKILL_DIAGNOSTIC_BYTES, NoticeLog, NoticeView};
+
+    /// A refused dispatch is reported, not fatal, and its text is bounded like any other notice.
+    ///
+    /// The behaviour this pins is the absence of an exit: before it, the typed error left the
+    /// composition root by `?` and ended the process, so a request the runtime could not encode
+    /// cost the user every row on screen. A notice costs them the request.
+    #[test]
+    fn a_refused_dispatch_is_one_bounded_notice_and_not_an_exit() {
+        let mut state = crate::ViewState::default();
+        state.report_dispatch_refusal("plaintext reasoning cannot be replayed".to_owned());
+        let Some(NoticeView::DispatchRefused { message }) = state.notices().next() else {
+            panic!("the refusal is the notice");
+        };
+        assert_eq!(message, "plaintext reasoning cannot be replayed");
+        assert_eq!(state.notices().count(), 1, "one refusal is one notice");
+
+        // A provider can say anything; the log cuts rather than refuses, because a diagnostic the
+        // log declined to hold would be a failure with no way to learn of it.
+        let mut state = crate::ViewState::default();
+        state.report_dispatch_refusal("é".repeat(MAX_SKILL_DIAGNOSTIC_BYTES));
+        let Some(NoticeView::DispatchRefused { message }) = state.notices().next() else {
+            panic!("still one notice");
+        };
+        assert!(
+            message.len() <= MAX_SKILL_DIAGNOSTIC_BYTES,
+            "{}",
+            message.len()
+        );
+        assert!(
+            message.chars().all(|character| character == 'é'),
+            "cut on a character boundary, never through one"
+        );
+    }
 
     #[test]
     fn the_log_is_bounded_and_reports_what_it_discarded() {

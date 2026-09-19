@@ -138,9 +138,13 @@ async fn model_replacement_is_atomic_and_preserves_workspace_instructions() {
     while runtime.try_next_event().is_some() {}
     let records = runtime.agent.journal().records().len();
     let environment = runtime.driver.request_environment().clone();
-    let selected = runtime
+    let replacement = runtime
         .set_model(&agent_id(), destination.clone(), key(&destination))
         .expect("switch");
+    // MDL-1: this conversation has produced no replay, so the switch cost it nothing and the user
+    // is told nothing. The receipt is for what was actually lost, not for every switch.
+    assert!(!replacement.degraded_history);
+    let selected = replacement.model;
     assert_eq!(selected.workspace_instructions(), "Workspace guidance");
     assert_eq!(selected.instructions(), "Second model instructions");
     assert_eq!(selected.reasoning_effort(), ReasoningEffort::High);
@@ -190,6 +194,11 @@ id = "first-wire"
 context_window_tokens = 8192
 max_output_tokens = 1024
 output_reserve_tokens = 1024
+[providers.first.models.sibling]
+id = "first-wire-pro"
+context_window_tokens = 8192
+max_output_tokens = 1024
+output_reserve_tokens = 1024
 [providers.second]
 base_url = "http://127.0.0.1:9"
 api_key_env = "OTHER_LOGIN"
@@ -207,9 +216,79 @@ output_reserve_tokens = 512
     .expect("registry")
 }
 
-/// MDL-1/PRV-3: replay rejection leaves the driver and canonical journal unchanged; busy refuses first.
+/// MDL-1/PRV-3: replay compatibility carries the exact wire id, so two models from one provider
+/// over one codec are as foreign to each other as two providers are. Moving between them is the
+/// ordinary case, and it must not be refused for anything already in the conversation.
 #[tokio::test]
-async fn model_replacement_refuses_busy_and_incompatible_replay_without_mutation() {
+async fn model_replacement_between_two_models_of_one_provider_is_not_refused() {
+    let directory = tools::TestWorkspace::new("model-sibling");
+    let registry = model_registry();
+    let original = registry.active_model().clone();
+    let sibling = registry.model("first", "sibling").expect("model").clone();
+    assert_eq!(original.api(), sibling.api(), "one codec");
+    assert_ne!(
+        original.replay_compatibility(),
+        sibling.replay_compatibility(),
+        "the wire id alone makes the existing replay foreign"
+    );
+    let key = |model: &plexmaton_provider::ResolvedModel| {
+        plexmaton_provider::resolve_api_key(model, Some("fixture-only".into())).expect("key")
+    };
+    let mut runtime = LiveRuntime::provider(
+        agent_id(),
+        "Fixture",
+        original.clone(),
+        key(&original),
+        directory
+            .catalog()
+            .with_provider_credentials(registry.models().map(|model| model.api_key_env())),
+    )
+    .expect("runtime");
+    runtime.agent.handle_at(
+        Input::Submitted {
+            text: "Keep this history".into(),
+        },
+        UnixMillis::EPOCH,
+    );
+    let step_id = runtime.agent.active_model_step().expect("step");
+    let mut codec = plexmaton_provider::ProviderCodec::new(
+        &RequestAttemptId::new("model-sibling").expect("attempt"),
+        &original,
+        plexmaton_provider::DecodeLimits::production(),
+    );
+    for (kind, payload) in [
+        (
+            "response.output_item.done",
+            r#"{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"rs_fixture","summary":[],"encrypted_content":"private-fixture"}}"#,
+        ),
+        (
+            "response.completed",
+            r#"{"type":"response.completed","response":{"status":"completed","usage":null}}"#,
+        ),
+    ] {
+        for event in codec.push_sse(kind, payload).expect("decode") {
+            runtime.agent.handle_at(
+                Input::Streamed {
+                    step_id: step_id.clone(),
+                    event,
+                },
+                UnixMillis::EPOCH,
+            );
+        }
+    }
+    assert!(!runtime.agent.is_running());
+    runtime
+        .set_model(&agent_id(), sibling.clone(), key(&sibling))
+        .expect("moving between two models of one provider must not be refused");
+    assert_eq!(runtime.configured_model(), Some(&sibling));
+    runtime.shutdown().await.expect("shutdown");
+}
+
+/// MDL-1/PRV-3: busy refuses first. A replay the destination cannot use costs the replay and not
+/// the switch, and the canonical journal is unchanged either way — which is what lets the original
+/// model be selected again and replay its own history natively.
+#[tokio::test]
+async fn model_replacement_refuses_busy_and_degrades_foreign_replay_without_mutation() {
     let directory = tools::TestWorkspace::new("model-replay");
     let registry = model_registry();
     let original = registry.active_model().clone();
@@ -266,14 +345,18 @@ async fn model_replacement_refuses_busy_and_incompatible_replay_without_mutation
     }
     assert!(!runtime.agent.is_running());
     let before = serde_json::to_value(runtime.agent.journal().records()).expect("records");
-    assert_eq!(
-        runtime.set_model(&agent_id(), destination.clone(), key(&destination)),
-        Err(Refusal::IncompatibleHistory)
-    );
-    assert_eq!(runtime.configured_model(), Some(&original));
+    runtime
+        .set_model(&agent_id(), destination.clone(), key(&destination))
+        .expect("a replay the destination cannot use must not cost the switch");
+    assert_eq!(runtime.configured_model(), Some(&destination));
     assert_eq!(
         serde_json::to_value(runtime.agent.journal().records()).expect("records"),
-        before
+        before,
+        "the sidecars stay in the record, so selecting the original model replays them again"
     );
+    runtime
+        .set_model(&agent_id(), original.clone(), key(&original))
+        .expect("the original model must be selectable again");
+    assert_eq!(runtime.configured_model(), Some(&original));
     runtime.shutdown().await.expect("shutdown");
 }

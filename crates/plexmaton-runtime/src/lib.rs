@@ -63,7 +63,7 @@ pub use owned_runner::{
 };
 pub use runtime::{
     ContextBudgetSnapshot, ContextBudgetUnavailable, DelegatedProjectionRefusal, LiveRuntime,
-    ModelChangeRefusal, QueuedBoundary, QueuedInput,
+    ModelChangeRefusal, ModelReplacement, QueuedBoundary, QueuedInput,
 };
 
 pub use runtime::{CodingSessionPermissions, ProjectPermissionConfigurationSource};

@@ -42,9 +42,24 @@ beside it, so the admitted shape adds no content. Rejected: decoding the entries
 their own right, which double-counts the gateways that restate the same delta twice; and admitting
 signed, encrypted or summarized entries, which keeps the text and silently drops the part the codec
 cannot replay.
-Opaque replay carries adapter-owned route owner, codec revision and model family compatibility; mismatch is typed. It is
+Opaque replay carries adapter-owned route owner, codec revision and model family compatibility. It is
 never rendered, copied, logged, truncated or treated as semantic text; exceeding its bound fails
-the step visibly. Unsigned reasoning stays in the journal and presentation, and wire encoders omit
+the step visibly.
+
+A reply whose compatibility is not the encoding model's is spelled from its blocks alone, never
+refused: text stays text; a thought that finished is carried as text, its content being real and
+readable by the next model; an interrupted one is left out, half a sentence attributed as speech
+saying what the model never said, and a sidecar is what tells the two apart; a call keeps its name
+and arguments, drops every shape legal only beside the replay that authenticates it — Gemini's
+`thought` flag, any upstream id — and takes an id every dialect accepts, applied to the call and to
+its result or to neither; a replay-only block is dropped, having been nothing but its sidecar. A
+reply carrying nothing is not sent as an empty one. Sidecars stay in the record, so the model that
+wrote them replays them exactly when selected again, and occupancy is measured for what ships.
+Rejected: dropping foreign reasoning outright, cheaper and free of the unsigned-thought hazard, but
+discarding a finished chain of reasoning the next model could have used.
+
+Unsigned reasoning — a reply interrupted before its own replay existed — stays in the journal and
+presentation, and wire encoders omit
 it without fabricating replay. Only a dialect whose API requires the block refuses instead: Messages
 needs a signed `thinking` block beside `tool_use`, so a tool turn that lost its signature cannot be
 replayed at all. Responses identifies a reasoning item by the provider's own opaque id and accepts

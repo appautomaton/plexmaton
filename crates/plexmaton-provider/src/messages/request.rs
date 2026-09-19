@@ -1,12 +1,17 @@
 //! Stateless Messages reconstruction from ordered canonical blocks.
 
 use plexmaton_agent::{
-    AssistantBlock, AssistantOutput, ContextAtom, ContextAtomValue, ModelRequest, ToolOutcome,
+    AssistantBlock, AssistantOutput, ContextAtom, ContextAtomValue, ModelRequest, ToolCall,
+    ToolOutcome,
 };
 use plexmaton_core::ReasoningEffort;
 use serde_json::{Value, json};
 
-use crate::{EncodeError, FunctionTool, PromptCache, ResolvedModel, codec::tool_output};
+use crate::{
+    EncodeError, FunctionTool, PromptCache, ResolvedModel,
+    codec::tool_output,
+    degrade::{self, Carried},
+};
 
 pub(crate) fn encode(
     model: &ResolvedModel,
@@ -68,12 +73,14 @@ pub(crate) fn encode_atom(
         })]),
         ContextAtomValue::Assistant(output) => Ok(assistant(model, output)?.into_iter().collect()),
         ContextAtomValue::ToolBatch(batch) => {
+            let degraded = degrade::is_degraded(batch.assistant(), model);
             let content: Vec<_> = batch
                 .results()
                 .iter()
                 .map(|result| {
                     json!({
-                        "type":"tool_result", "tool_use_id":result.call_id().as_str(),
+                        "type":"tool_result",
+                        "tool_use_id":degrade::atom_call_id(degraded, result.call_id()),
                         "content":tool_output(result.outcome()),
                         "is_error": !matches!(result.outcome(), ToolOutcome::Succeeded { .. }),
                     })
@@ -87,18 +94,39 @@ pub(crate) fn encode_atom(
     }
 }
 
+/// Spells what survived a replay this model cannot use. PRV-3 owns what that is; this only writes
+/// it in the dialect's own words.
+fn degraded_assistant(carried: &[Carried<'_>]) -> Result<Option<Value>, EncodeError> {
+    let mut content = Vec::new();
+    for block in carried {
+        content.push(match block {
+            Carried::Text(text) => json!({"type":"text", "text":text}),
+            Carried::Call(call) => json!({
+                "type":"tool_use",
+                "id":degrade::atom_call_id(true, &call.call_id),
+                "name":call.name,
+                "input":tool_input(call)?,
+            }),
+        });
+    }
+    Ok((!content.is_empty()).then(|| json!({"role":"assistant", "content":content})))
+}
+
+fn tool_input(call: &ToolCall) -> Result<Value, EncodeError> {
+    let input: Value =
+        serde_json::from_str(&call.arguments).map_err(|_| EncodeError::InvalidToolArguments)?;
+    if !input.is_object() {
+        return Err(EncodeError::InvalidToolArguments);
+    }
+    Ok(input)
+}
+
 fn assistant(
     model: &ResolvedModel,
     output: &AssistantOutput,
 ) -> Result<Option<Value>, EncodeError> {
-    let expected = model.replay_compatibility();
-    if let Some(replay) = output.replay()
-        && replay.compatible_with() != &expected
-    {
-        return Err(EncodeError::IncompatibleReplay {
-            found: Box::new(replay.compatible_with().clone()),
-            expected: Box::new(expected),
-        });
+    if let Some(carried) = degrade::degraded(output, model) {
+        return degraded_assistant(&carried);
     }
     let mut content = Vec::new();
     for (index, block) in output.blocks().iter().enumerate() {
@@ -120,12 +148,10 @@ fn assistant(
                 json!({"type":"text", "text":text})
             }
             AssistantBlock::ToolCall { call, .. } if replay.is_none() => {
-                let input: Value = serde_json::from_str(&call.arguments)
-                    .map_err(|_| EncodeError::InvalidToolArguments)?;
-                if !input.is_object() {
-                    return Err(EncodeError::InvalidToolArguments);
-                }
-                json!({"type":"tool_use","id":call.call_id.as_str(),"name":call.name,"input":input})
+                json!({
+                    "type":"tool_use", "id":call.call_id.as_str(),
+                    "name":call.name, "input":tool_input(call)?,
+                })
             }
             AssistantBlock::Reasoning { .. } | AssistantBlock::ReplayOnly { .. } => {
                 let replay = replay.ok_or(EncodeError::MissingThinkingSignature)?;
