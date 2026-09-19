@@ -308,8 +308,13 @@ async fn run_command(
         Command::Effort | Command::Model => {}
         Command::Tree => conversation_tree::open(runtime, workspace, &run.target.agent),
         Command::Compact => {
+            let retention = if run.flags.contains(plexmaton_tui::CommandFlag::Force) {
+                plexmaton_runtime::Retention::Overridden
+            } else {
+                plexmaton_runtime::Retention::Honoured
+            };
             let note = match runtime
-                .request_compaction(run.target.agent.clone())
+                .request_compaction(run.target.agent.clone(), retention)
                 .await
                 .context("request compaction")?
             {
@@ -321,6 +326,7 @@ async fn run_command(
                     Refusal::ShuttingDown => CompactRefusal::ShuttingDown,
                     Refusal::BudgetUnavailable => CompactRefusal::BudgetUnavailable,
                     Refusal::NothingToCompact => CompactRefusal::NothingToCompact,
+                    Refusal::WithinRetention => CompactRefusal::WithinRetention,
                     Refusal::HistoryTooLarge => CompactRefusal::HistoryTooLarge,
                     Refusal::SourceUnavailable => CompactRefusal::SourceUnavailable,
                 }),

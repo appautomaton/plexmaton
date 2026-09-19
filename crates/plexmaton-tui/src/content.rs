@@ -224,7 +224,12 @@ pub(crate) fn note_lines(
             palette.style(Role::NewInformation),
         )),
         ConversationNote::CompactionRefused(refusal) => {
-            lines.push(Line::styled(refusal.message(), palette.style(Role::Muted)))
+            let role = if refusal.offers_an_action() {
+                Role::ActionRequired
+            } else {
+                Role::Muted
+            };
+            lines.push(Line::styled(refusal.message(), palette.style(role)));
         }
         ConversationNote::CompactionFailed { reason } => lines.push(Line::styled(
             format!("Could not compact: {reason}."),

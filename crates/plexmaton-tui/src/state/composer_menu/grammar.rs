@@ -54,6 +54,23 @@ impl Command {
         }
     }
 
+    /// The flags this Command accepts, modifying how it runs (CMC-2).
+    ///
+    /// A flag is not a listing: a listing names *what* the Command runs on and is chosen from
+    /// rows, while a flag changes *how* it runs and is typed. A Command may declare both.
+    #[must_use]
+    pub const fn flags(self) -> &'static [CommandFlag] {
+        match self {
+            Self::Compact => &[CommandFlag::Force],
+            Self::New
+            | Self::Resume
+            | Self::Permissions
+            | Self::Effort
+            | Self::Model
+            | Self::Tree => &[],
+        }
+    }
+
     /// The listing a completed Command opens, whose query is the text after it (CMC-2).
     #[must_use]
     pub const fn lists(self) -> Option<Listing> {
@@ -86,6 +103,83 @@ impl Command {
             .find(|command| command.name() == name)
             .or_else(|| (name == "rewind").then_some(Self::Tree))
     }
+}
+
+/// One typed modifier on a Command: what it does differently, never what it acts on (CMC-2).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommandFlag {
+    /// Run the action even where the runtime would otherwise decline it as unnecessary.
+    Force,
+}
+
+impl CommandFlag {
+    /// The flag as it is typed, sigil included.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Force => "--force",
+        }
+    }
+}
+
+/// The declared flags one draft carries. A set, because a flag is present or it is not.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CommandFlags(u8);
+
+impl CommandFlags {
+    const fn bit(flag: CommandFlag) -> u8 {
+        1 << (flag as u8)
+    }
+
+    #[must_use]
+    pub const fn contains(self, flag: CommandFlag) -> bool {
+        self.0 & Self::bit(flag) != 0
+    }
+
+    const fn with(self, flag: CommandFlag) -> Self {
+        Self(self.0 | Self::bit(flag))
+    }
+}
+
+/// Splits the text after a Command name into its leading declared flags and the query after them.
+///
+/// Flags lead because a query is what the user is naming and may be anything; a `--` token is not
+/// a name. An undeclared `--token` is not silently a query: the draft stops being a Command and
+/// submits as text, so a mistyped flag is visible as the message it became rather than running
+/// something the user did not ask for.
+fn split_flags(command: Command, trailing: &str) -> Option<(CommandFlags, &str)> {
+    let mut flags = CommandFlags::default();
+    let mut rest = trailing.trim_start();
+    while let Some(token) = rest.split_whitespace().next() {
+        if !token.starts_with("--") {
+            break;
+        }
+        let flag = command
+            .flags()
+            .iter()
+            .copied()
+            .find(|flag| flag.name() == token)?;
+        flags = flags.with(flag);
+        rest = rest[token.len()..].trim_start();
+    }
+    Some((flags, rest))
+}
+
+/// The declared flags a whole-Command draft carries, empty when it is not a Command (CMC-2).
+#[must_use]
+pub(crate) fn command_flags(text: &str) -> CommandFlags {
+    let Some(rest) = text.strip_prefix('/') else {
+        return CommandFlags::default();
+    };
+    let Some(command) = initial_token(text).and_then(Command::parse) else {
+        return CommandFlags::default();
+    };
+    split_flags(command, &rest[command_token_len(text)..])
+        .map_or_else(CommandFlags::default, |(flags, _)| flags)
+}
+
+fn command_token_len(text: &str) -> usize {
+    initial_token(text).map_or(0, str::len)
 }
 
 /// What the draft is completing: the listing, the query so far, and the token the query is in.
@@ -150,8 +244,8 @@ pub(crate) fn exact_command(text: &str) -> Option<Command> {
     let rest = text.strip_prefix('/')?;
     let token = initial_token(text)?;
     let command = Command::parse(token)?;
-    let trailing = rest[token.len()..].trim();
-    (trailing.is_empty() || command.lists().is_some()).then_some(command)
+    let (_, query) = split_flags(command, &rest[token.len()..])?;
+    (query.trim().is_empty() || command.lists().is_some()).then_some(command)
 }
 
 pub(crate) fn binding_matches(text: &str, name: &str) -> bool {

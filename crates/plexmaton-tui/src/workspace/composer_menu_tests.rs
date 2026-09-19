@@ -151,6 +151,7 @@ fn the_slash_lists_the_commands_and_only_a_whole_command_runs() {
         Some(CommandRun {
             command: Command::Compact,
             target: CommandTarget { agent: agent() },
+            flags: crate::CommandFlags::default(),
         })
     );
     assert!(outcome.submitted.is_none());

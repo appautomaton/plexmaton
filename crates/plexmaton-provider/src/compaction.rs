@@ -102,14 +102,14 @@ pub enum CompactionPreparationError {
     OversizedRequiredUser,
     #[error("the selected source cannot be reduced while retaining required context")]
     NoUsefulReduction,
+    #[error("the conversation is no larger than the tail a checkpoint would keep")]
+    WithinRetention,
     #[error("the complete history plus compaction instruction exceeds available input capacity")]
     NoFittingInput,
     #[error("the collected compaction summary exceeds its frozen byte allowance")]
     OutputTooLarge,
     #[error("the checkpoint replacement exceeds available input capacity")]
     UnfittableReplacement,
-    #[error("the checkpoint replacement does not reduce the frozen request")]
-    ReplacementMakesNoProgress,
 }
 
 /// Freezes one journal source and appends the compaction instruction without changing its prefix.
@@ -120,12 +120,27 @@ pub fn plan_compaction(
     tools: &[FunctionTool],
     collaboration: &plexmaton_agent::collaboration::ResolvedContext,
     id: CompactionId,
+    retention: Retention,
 ) -> Result<PreparedCompaction, CompactionPreparationError> {
     let source = journal
         .compaction_source(head)
         .map_err(CompactionPreparationError::Source)?;
     let budgeted = budgeted_context(journal, head, model, tools, collaboration)?;
-    prepare(source, budgeted, model, tools, id)
+    prepare(source, budgeted, model, tools, id, retention)
+}
+
+/// Whether the configured retention window may answer that there is nothing to compact (CPL-3).
+///
+/// The window is a configured count compared against `utf8_heuristic_v1` estimates, so "this
+/// conversation is not long enough" is a statement about two numbers this runtime chose, never a
+/// measurement of the provider's tokenizer. A user who disagrees overrides it by name.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Retention {
+    /// A conversation that fits inside its retention window has no history in front to summarize.
+    #[default]
+    Honoured,
+    /// Summarize the oldest history even then, because the user asked for it by name.
+    Overridden,
 }
 
 /// Validates a concrete replacement against the frozen request using codec-derived occupancy.
@@ -138,11 +153,16 @@ pub fn validate_replacement(
     let frozen = estimate_request(model, frozen, tools)?;
     let estimate = estimate_request(model, replacement, tools)?;
     let input_capacity = input_capacity(model);
+    // Whether the replacement is smaller than what it replaces is not checked, for automatic work
+    // as much as for a request: size is an estimate and quality is unread, so a rule made of
+    // either discards a finished summary on evidence this runtime does not have. Automatic work
+    // needs no exception either, because it cannot reach the case — pressure arrives at 80% of a
+    // real model's capacity, where the covered prefix dwarfs any summary. A rule would have to
+    // wait for a model whose whole usable window is about one retention tail.
+    // Rejected: refusing a replacement that does not reduce the frozen request, which spent the
+    // call, wrote the summary, discarded it, and reported an estimator's verdict as a failure.
     if estimate.tokens > input_capacity {
         return Err(CompactionPreparationError::UnfittableReplacement);
-    }
-    if estimate.tokens >= frozen.tokens {
-        return Err(CompactionPreparationError::ReplacementMakesNoProgress);
     }
     Ok(ReplacementFit {
         estimate,
@@ -222,6 +242,7 @@ fn prepare(
     model: &ResolvedModel,
     tools: &[FunctionTool],
     id: CompactionId,
+    retention: Retention,
 ) -> Result<PreparedCompaction, CompactionPreparationError> {
     let capacity = input_capacity(model);
     let environment = budgeted.ledger.environment_estimate.tokens;
@@ -246,8 +267,23 @@ fn prepare(
         return Err(CompactionPreparationError::OversizedRequiredUser);
     }
     let suffix_limit = u64::from(model.compaction_keep_recent_tokens()).min(available / 4);
+    // CPL-3's gate, and the only thing that decides whether the summarizer is asked at all: a
+    // conversation no larger than the tail a checkpoint would keep has nothing in front of that
+    // tail to summarize. Both numbers are this runtime's own — a configured count and
+    // `utf8_heuristic_v1` estimates — so the gate is a default the user overrides by name, never
+    // a measurement of the provider's tokenizer. Everything past it is unchanged by the override.
+    if retention == Retention::Honoured && conversation_tokens(&budgeted)? <= suffix_limit {
+        return Err(CompactionPreparationError::WithinRetention);
+    }
     let suffix_start = select_suffix_start(&budgeted, suffix_limit, required_user.as_ref());
     if suffix_start == 0 {
+        return Err(CompactionPreparationError::NoUsefulReduction);
+    }
+    // A cut whose covered prefix is entirely required user context replaces nothing: the pinned
+    // atoms are re-attached after the summary, so publication would refuse it structurally. That
+    // refusal belongs here, before a summarizer call, and it is about what the cut *is* rather
+    // than how large its result turned out to be.
+    if pinned_len(required_user.as_ref(), suffix_start) >= suffix_start {
         return Err(CompactionPreparationError::NoUsefulReduction);
     }
     let cut = CompactionCut::new(
@@ -285,6 +321,31 @@ fn prepare(
         frozen_request: budgeted.request,
         input,
     })
+}
+
+/// How much of a covered prefix is required user context the replacement re-attaches verbatim.
+fn pinned_len(required_user: Option<&std::ops::Range<usize>>, suffix_start: usize) -> usize {
+    required_user
+        .filter(|range| range.start < suffix_start)
+        .map_or(0, |range| {
+            range.end.min(suffix_start).saturating_sub(range.start)
+        })
+}
+
+/// What the conversation itself occupies, without the environment a checkpoint never replaces.
+///
+/// The per-atom estimates are the only per-message quantity that exists: a provider's reported
+/// input covers one whole request and cannot be partitioned across atoms (BUD-2), so a retention
+/// decision is always made against `utf8_heuristic_v1` whatever the provider has said.
+fn conversation_tokens(budgeted: &BudgetedContext) -> Result<u64, CompactionPreparationError> {
+    budgeted
+        .ledger
+        .atoms
+        .iter()
+        .try_fold(0_u64, |total, atom| total.checked_add(atom.estimate.tokens))
+        .ok_or(CompactionPreparationError::Budget(
+            ContextBudgetError::Arithmetic(plexmaton_agent::BudgetError::Overflow),
+        ))
 }
 
 fn input_capacity(model: &ResolvedModel) -> u64 {

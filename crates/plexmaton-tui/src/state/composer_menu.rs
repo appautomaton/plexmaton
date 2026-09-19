@@ -26,10 +26,10 @@ mod navigation;
 mod session_permissions;
 mod skill_bindings;
 
-pub use grammar::Command;
 pub(super) use grammar::binding_matches;
 #[cfg(test)]
 use grammar::exact_command;
+pub use grammar::{Command, CommandFlag, CommandFlags};
 use grammar::{Completion, completion, initial_token};
 
 /// Rows the menu shows before it scrolls.
@@ -581,6 +581,24 @@ mod tests {
         assert_eq!(exact_command("/config"), None);
         assert_eq!(exact_command("see /compact"), None);
         assert_eq!(exact_command(""), None);
+    }
+
+    /// CMC-2: a declared flag keeps the draft a Command; an undeclared one leaves it text.
+    ///
+    /// An unrecognized flag becoming a message is the visible failure: the alternative was to
+    /// treat an unknown `--token` as an ordinary word, which would silently run the plain Command
+    /// the user was trying to modify.
+    #[test]
+    fn a_declared_flag_keeps_the_draft_a_command() {
+        use super::grammar::{CommandFlag, command_flags};
+        assert_eq!(exact_command("/compact --force"), Some(Command::Compact));
+        assert!(command_flags("/compact --force").contains(CommandFlag::Force));
+        assert!(!command_flags("/compact").contains(CommandFlag::Force));
+        // Undeclared here, and undeclared anywhere: neither is a Command.
+        assert_eq!(exact_command("/compact --quiet"), None);
+        assert_eq!(exact_command("/new --force"), None);
+        // A listing Command's query is still its query, and carries no flag.
+        assert!(!command_flags("/resume --force").contains(CommandFlag::Force));
     }
 
     /// CMC-1/SKP-3: the listing follows the token the draft starts with, and the query is what

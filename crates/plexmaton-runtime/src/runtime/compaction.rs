@@ -5,7 +5,7 @@ use plexmaton_agent::{
     CompactionOutcome, ModelCall, ModelError, OversizedInput, RequestAttemptId,
 };
 use plexmaton_provider::{
-    CompactionInput, CompactionPreparationError, PreparedCompaction, budget_ledger,
+    CompactionInput, CompactionPreparationError, PreparedCompaction, Retention, budget_ledger,
     plan_compaction, validate_compaction_output,
 };
 use tokio_util::sync::CancellationToken;
@@ -120,6 +120,10 @@ impl LiveRuntime {
             tools,
             &self.collaboration_context,
             id,
+            // Automatic work never overrides the gate: pressure only arises once the conversation
+            // is far past the tail a checkpoint keeps, so a conversation inside it has nothing
+            // this could relieve (CPL-7).
+            Retention::Honoured,
         ) {
             Ok(prepared) => prepared,
             Err(_) => return self.finish_compaction_failure(call, trigger),
@@ -267,10 +271,8 @@ impl LiveRuntime {
                     CompactionFailure::OutputTooLarge
                 }
                 CompactionPreparationError::NoUsefulReduction
-                | CompactionPreparationError::ReplacementMakesNoProgress => {
-                    CompactionFailure::NoProgress
-                }
-                CompactionPreparationError::Source(_)
+                | CompactionPreparationError::WithinRetention
+                | CompactionPreparationError::Source(_)
                 | CompactionPreparationError::Budget(_)
                 | CompactionPreparationError::Plan(_)
                 | CompactionPreparationError::UnfittableEnvironment

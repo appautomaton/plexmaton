@@ -305,7 +305,7 @@ async fn input_held_by_an_owned_operation_is_reported_and_taken_back_newest_firs
     let _events = finish_active(&mut runtime).await;
     driver.enable();
     match runtime
-        .request_compaction(agent_id())
+        .request_compaction(agent_id(), plexmaton_provider::Retention::Overridden)
         .await
         .unwrap_or_else(|error| panic!("request compaction: {error}"))
     {

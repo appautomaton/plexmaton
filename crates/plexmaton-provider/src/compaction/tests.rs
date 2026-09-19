@@ -204,6 +204,7 @@ fn assert_tail_budget(
         &tools,
         &Default::default(),
         CompactionId::new("retained-tail-plan").expect("id"),
+        Retention::Overridden,
     )
     .expect("plan");
     let basis = budgeted_context(agent.journal(), &head(), model, &tools, &Default::default())
@@ -308,6 +309,7 @@ fn cpl_2_compaction_appends_only_the_instruction_across_all_dialects() {
             &tools,
             &Default::default(),
             CompactionId::new(format!("compact-{api}")).expect("id"),
+            Retention::Overridden,
         )
         .expect("plan");
         assert_eq!(agent.journal(), &before);
@@ -370,6 +372,7 @@ fn cpl_3_replacement_preview_rejects_oversized_summary_without_mutating_source()
         &tools,
         &Default::default(),
         CompactionId::new("compact-preview").expect("id"),
+        Retention::Overridden,
     )
     .expect("plan");
     let output = AssistantOutput::new(
@@ -444,7 +447,8 @@ fn cpl_2_measured_overflow_refuses_compaction_without_rewriting_history() {
             &model,
             &tools,
             &Default::default(),
-            CompactionId::new("anchored-compaction").expect("id")
+            CompactionId::new("anchored-compaction").expect("id"),
+            Retention::Overridden,
         ),
         Err(CompactionPreparationError::NoFittingInput)
     ));
@@ -488,6 +492,7 @@ fn cpl_3_planning_refusals_are_typed_and_leave_source_unchanged() {
             &huge_tools,
             &Default::default(),
             CompactionId::new("environment-refusal").expect("id"),
+            Retention::Overridden,
         ),
         Err(CompactionPreparationError::UnfittableEnvironment)
     ));
@@ -509,6 +514,7 @@ fn cpl_3_planning_refusals_are_typed_and_leave_source_unchanged() {
             &tools(),
             &Default::default(),
             CompactionId::new("user-refusal").expect("id"),
+            Retention::Overridden,
         ),
         Err(CompactionPreparationError::OversizedRequiredUser)
     ));
@@ -531,15 +537,54 @@ fn cpl_3_planning_refusals_are_typed_and_leave_source_unchanged() {
             &tools(),
             &Default::default(),
             CompactionId::new("single-refusal").expect("id"),
+            Retention::Overridden,
         ),
         Err(CompactionPreparationError::NoUsefulReduction)
     ));
     assert_eq!(one_atom.journal(), &before);
 }
 
-/// CPL-3: a bounded but token-expanding summary is a no-progress publication refusal.
+/// CPL-3: a conversation inside its retention window is declined before any summarizer call,
+/// and the same conversation plans normally once the user overrides that window by name.
+///
+/// This is the whole of what the gate decides. Both of its numbers belong to this runtime — a
+/// configured count and `utf8_heuristic_v1` estimates — so it is a default about two things we
+/// chose, and the override moves nothing else: the same cut, the same instruction, the same
+/// publication follow it.
 #[test]
-fn cpl_3_replacement_preview_rejects_token_non_progress() {
+fn cpl_3_a_conversation_inside_its_retention_window_is_declined_until_overridden() {
+    let model = model("openai_responses");
+    let tools = tools();
+    let agent = history();
+    let before = agent.journal().clone();
+    let plan = |retention| {
+        plan_compaction(
+            agent.journal(),
+            &head(),
+            &model,
+            &tools,
+            &Default::default(),
+            CompactionId::new("within-retention").expect("id"),
+            retention,
+        )
+    };
+    assert!(matches!(
+        plan(Retention::Honoured),
+        Err(CompactionPreparationError::WithinRetention)
+    ));
+    assert_eq!(agent.journal(), &before, "a decline writes nothing");
+    plan(Retention::Overridden).expect("the override plans the same conversation");
+    assert_eq!(agent.journal(), &before, "planning writes nothing either");
+}
+
+/// CPL-3: a bounded summary publishes even where it grows the request it replaces.
+///
+/// The runtime cannot read the summary and cannot measure it, only estimate it, so a rule that
+/// discarded one for coming back larger would be spending a finished model call on a comparison
+/// that answers neither question anyone has. It fits the window or it does not; that is all the
+/// runtime knows, and all it decides.
+#[test]
+fn cpl_3_a_summary_that_grows_the_request_still_publishes() {
     let model = model("openai_responses");
     let tools = tools();
     let agent = history();
@@ -550,6 +595,7 @@ fn cpl_3_replacement_preview_rejects_token_non_progress() {
         &tools,
         &Default::default(),
         CompactionId::new("non-progress").expect("id"),
+        Retention::Overridden,
     )
     .expect("plan");
     let output = AssistantOutput::new(
@@ -560,10 +606,14 @@ fn cpl_3_replacement_preview_rejects_token_non_progress() {
         None,
     )
     .expect("bounded output");
-    assert!(matches!(
-        validate_compaction_output(&prepared, &model, &tools, &output),
-        Err(CompactionPreparationError::ReplacementMakesNoProgress)
-    ));
+    let replacement =
+        validate_compaction_output(&prepared, &model, &tools, &output).expect("publishes");
+    let frozen = estimate_request(&model, &prepared.frozen_request, &tools).expect("frozen");
+    let grown = estimate_request(&model, &replacement, &tools).expect("replacement");
+    assert!(
+        grown.tokens >= frozen.tokens,
+        "this fixture's summary is the growing one the rule used to refuse"
+    );
 }
 
 fn last_text<'a>(body: &'a serde_json::Value, api: &str) -> Option<&'a str> {

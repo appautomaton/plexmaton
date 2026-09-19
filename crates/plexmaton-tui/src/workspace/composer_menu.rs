@@ -100,11 +100,14 @@ impl Workspace {
                 let Some(agent) = self.state.primary_agent().map(|agent| agent.id.clone()) else {
                     return Outcome::default();
                 };
+                // Read before the draft is taken: the flags live in the text being consumed.
+                let flags = self.state.command_flags();
                 self.state.take_command_draft();
                 Outcome {
                     command: Some(CommandRun {
                         command: Command::Compact,
                         target: CommandTarget { agent },
+                        flags,
                     }),
                     ..Outcome::default()
                 }

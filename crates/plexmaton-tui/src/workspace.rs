@@ -149,6 +149,8 @@ pub struct EffortChange {
 pub struct CommandRun {
     pub command: crate::Command,
     pub target: CommandTarget,
+    /// The modifiers typed with it. Empty unless the draft named one the Command declares.
+    pub flags: crate::CommandFlags,
 }
 
 /// The conversation a Command runs against. The runtime's admission is its revalidation: a

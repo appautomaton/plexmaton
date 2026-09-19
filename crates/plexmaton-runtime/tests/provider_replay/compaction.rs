@@ -85,6 +85,7 @@ fn checkpoint(
         tools,
         &Default::default(),
         CompactionId::new(format!("compact-{ordinal}")).expect("operation"),
+        plexmaton_provider::Retention::Overridden,
     )
     .expect("source can compact");
     let output = AssistantOutput::new(vec![
@@ -311,6 +312,7 @@ fn cpl_5_retention_config_change_preserves_checkpoint_and_continuation_bytes() {
                     &tools,
                     &Default::default(),
                     CompactionId::new("verify-effective-setting").expect("operation"),
+                    plexmaton_provider::Retention::Overridden,
                 )
                 .expect("source fits both settings")
                 .plan()

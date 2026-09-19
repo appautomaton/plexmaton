@@ -21,6 +21,7 @@ fn agi_4_workspace_instructions_remain_outside_the_compaction_cut() {
             &[],
             &Default::default(),
             CompactionId::new("workspace-compaction").expect("id"),
+            Retention::Overridden,
         )
         .expect("plan");
         let output = AssistantOutput::new(

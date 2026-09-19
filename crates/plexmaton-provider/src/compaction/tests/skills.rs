@@ -60,6 +60,7 @@ fn cpl_3_skill_invocation_survives_compaction_in_every_dialect() {
                 &[],
                 &Default::default(),
                 CompactionId::new("compact-skill").expect("id"),
+                Retention::Overridden,
             )
             .expect("complete input fits");
             let output = AssistantOutput::new(

@@ -279,6 +279,10 @@ pub enum CompactionFailure {
     ProviderFailed,
     Malformed,
     Unavailable,
+    /// Replay only: journals written while publication compared the replacement's estimated size
+    /// against the frozen request carry this kind. Nothing produces it, because that comparison
+    /// judged a finished summary on an estimate of the wrong quantity; reopening a conversation
+    /// that recorded one must still name what happened to it.
     NoProgress,
 }
 

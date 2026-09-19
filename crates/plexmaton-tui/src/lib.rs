@@ -36,8 +36,8 @@ pub use render::render;
 pub use router::{Ignored, Routed, Router, RouterContext};
 pub use state::{
     AgentView, ApplyOutcome, ApprovalSubmission, ApprovalView, ArtifactView, AttentionView,
-    ChildControl, ChildControlRefusal, ChildControlSnapshot, CleanupNotice, Command,
-    CompactRefusal, CompactionNote, ConfigurationSummary, ConversationChoice,
+    ChildControl, ChildControlRefusal, ChildControlSnapshot, CleanupNotice, Command, CommandFlag,
+    CommandFlags, CompactRefusal, CompactionNote, ConfigurationSummary, ConversationChoice,
     ConversationPickerStatus, ConversationRequest, ConversationRestoration, ConversationTailRepair,
     CopyReceipt, CopyRequest, Drawer, HandoffView, InspectorView, Listing,
     MAX_CONVERSATION_CHOICES, MailView, ModelChoice, ModelIdentity, NoticeView, Page,
