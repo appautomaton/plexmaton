@@ -88,6 +88,11 @@ that was: Chat admits `provider_metadata`, the gateway accounting — cost, cach
 attempts — that rides the final delta beside `finish_reason`, and admits it nowhere else.
 Rejected: refusing it as unexamined, which was right in principle and in practice discarded a whole
 completed answer at its last chunk, on every gateway that sends it.
+A tool the provider ran on its own side falls the other way: a `server_tool_use` block and a
+non-zero server-tool count are content this harness never admitted, never bounded and cannot show,
+and a turn that absorbs them quietly reports work its own record does not contain. Rejected:
+admitting them as opaque replay, which round-trips correctly and leaves the reader an answer whose
+sources appear nowhere in the conversation.
 
 **PRV-6 — Configuration names data, never authority.** `~/.plexmaton/config.toml` separates named
 provider routes from their named models and selects one exact provider/model pair. A route owns its
@@ -125,11 +130,12 @@ ModelRequest (session identity + atoms) + resolved model + tool schemas
       ModelEvent + ProviderReplay
 ```
 
-The development route is an OpenAI-compatible proxy at `http://127.0.0.1:8317/v1`; its `luna`
-model uses `gpt-5.6-luna` over Responses, while Chat Completions remains an explicit model API
-choice. Rejected: xAI as the first provider, because it is not the endpoint Plexmaton's local
-development loop exercises. Rejected: automatic fallback, because replay and failure semantics
-change across APIs.
+The development route is an OpenAI-compatible proxy on loopback. Its port is the developer's own,
+so it belongs in their `providers.toml` rather than here. That route's `luna` model uses
+`gpt-5.6-luna` over Responses, while Chat Completions remains an explicit model API choice.
+Rejected: xAI as the first provider, because it is not the endpoint Plexmaton's local development
+loop exercises. Rejected: automatic fallback, because replay and failure semantics change across
+APIs.
 
 ## Failure modes
 

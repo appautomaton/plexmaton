@@ -16,7 +16,7 @@ Plexmaton is App Automaton's Rust AI coding assistant for the terminal. Choose a
 ## Why Plexmaton?
 
 - **Keep the work in view.** Streaming answers, tool activity and approvals share a responsive workspace with expandable details.
-- **Choose your models.** Use OpenAI Responses, Chat Completions, Anthropic Messages or Gemini APIs.
+- **Choose your models.** Use OpenAI Responses or Chat Completions, both exercised daily. The Anthropic Messages and Gemini adapters are implemented and fixture-tested, not yet run against a live endpoint.
 - **Stay in control.** Approve an action once, remember a Session or Project permission, and review or revoke it in the Drawer.
 - **Carry your context forward.** Saved conversations and automatic compaction preserve source history. Reusable `SKILL.md` instructions bring your workflows into the conversation.
 - **Read comfortably.** Pastel Markdown, [syntax-highlighted code](.agents/specs/markdown.md#code-theme), and native math with hats and Chinese labels. Reasoning, tool groups and messages stay compact; copy follows selection.
@@ -52,7 +52,12 @@ Project guidance loads from `PLEXMATON_HOME/AGENTS.md` (default `~/.plexmaton/AG
 `AGENTS.md` from the checkout root to your working directory. Opening a conversation refreshes
 this snapshot; deeper files are read through ordinary tools. [Scope and limits](.agents/specs/agent-instructions.md).
 
-UI, tools and journals are local; model requests use your configured endpoint. Commands are **not OS-sandboxed**. File tools stay within the workspace and refuse symlinks.
+UI, tools and journals are local, and model requests use your configured endpoint. On macOS an
+approved command runs behind an OS write fence: your workspace, your temporary directories and your
+toolchain caches stay writable, writes anywhere else are refused, and reads and network are not
+fenced. Off macOS there is **no fence yet**, so a command writes with your account's full authority.
+File tools stay within the workspace and refuse symlinks on every platform.
+[What the fence covers](.agents/specs/command-tool.md)
 
 ## Everyday controls
 
