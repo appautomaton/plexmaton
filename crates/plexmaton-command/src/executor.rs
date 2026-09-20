@@ -17,7 +17,7 @@ use crate::process::{OsProcessOperations, ProcessOperations, try_wait_child, wai
 use crate::result::{CommandExecutionError, CommandOutput, ExitCause, OutputStream};
 
 const SHELL: &str = "/bin/sh";
-const TERMINATION_GRACE: Duration = Duration::from_secs(1);
+pub(crate) const TERMINATION_GRACE: Duration = Duration::from_secs(1);
 const GROUP_SETTLE_DEADLINE: Duration = Duration::from_secs(1);
 const GROUP_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const DRAIN_GRACE: Duration = Duration::from_secs(2);
@@ -201,7 +201,7 @@ async fn terminate_and_reap(
     operations: &impl ProcessOperations,
 ) -> Result<TerminationReport, CommandExecutionError> {
     signal_group(operations, process_group, Signal::TERM, "SIGTERM")?;
-    let deadline = tokio::time::Instant::now() + TERMINATION_GRACE;
+    let deadline = tokio::time::Instant::now() + operations.termination_grace();
     let mut root_reaped = false;
     loop {
         if !root_reaped {
@@ -247,7 +247,7 @@ async fn terminate_group(
     operations: &impl ProcessOperations,
 ) -> Result<TerminationReport, CommandExecutionError> {
     signal_group(operations, process_group, Signal::TERM, "SIGTERM")?;
-    let deadline = tokio::time::Instant::now() + TERMINATION_GRACE;
+    let deadline = tokio::time::Instant::now() + operations.termination_grace();
     loop {
         if !process_group_exists(operations, process_group)? {
             return Ok(TerminationReport::default());
@@ -988,35 +988,67 @@ mod tests {
         assert_eq!(output.stdout.to_lossy_utf8(), "��A");
     }
 
+    /// A grace no loaded machine can exhaust, so a SIGKILL here means a hang, not a slow scheduler.
+    ///
+    /// The product's own one-second grace made this assertion a wall-clock race against every
+    /// sibling test spawning processes beside it, and it lost about one run in six.
+    struct PatientOperations;
+
+    impl ProcessOperations for PatientOperations {
+        fn kill_process_group(&self, process_group: Pid, signal: Signal) -> Result<(), Errno> {
+            kill_process_group(process_group, signal)
+        }
+
+        fn test_kill_process_group(&self, process_group: Pid) -> Result<(), Errno> {
+            test_kill_process_group(process_group)
+        }
+
+        fn termination_grace(&self) -> Duration {
+            Duration::from_secs(60)
+        }
+    }
+
     #[tokio::test]
     async fn cmd_5_cancellation_gracefully_terms_reaps_and_joins_drains() {
         let workspace = TestWorkspace::new();
-        let tool = workspace.tool();
         let ready = workspace.0.join("ready.pid");
         let term_seen = workspace.0.join("term-seen");
-        // Shell wait is interruptible: the trap must run before the grace deadline (CMD-5).
-        let command = "trap 'printf term > term-seen; exit 0' TERM; /bin/sleep 30 & printf '%s' $$ > ready.pid; wait";
-        let cancellation = CancellationToken::new();
-        let runner = {
-            let tool = tool.clone();
-            let call = admitted(&tool, command, 5_000);
-            let cancellation = cancellation.clone();
-            tokio::spawn(async move { tool.execute(&call, cancellation).await })
+        // Shell wait is interruptible, so the trap runs rather than the default disposition, which
+        // is what distinguishes a graceful SIGTERM from the escalation this test forbids (CMD-5).
+        // The marker is renamed into place: one created by `>` and filled afterwards exists before
+        // it holds a pid, and hands the reader a truncated one.
+        let arguments = crate::admission::CanonicalArguments {
+            cmd: "trap 'printf term > term-seen; exit 0' TERM; /bin/sleep 30 & printf '%s' $$ > pid.part; mv pid.part ready.pid; wait".to_owned(),
+            timeout_ms: 60_000,
+            workspace_root: workspace.0.to_string_lossy().into_owned(),
         };
-        wait_for_file(&ready).await;
-        let process_group = read_pid(&ready);
-        cancellation.cancel();
-        let output = runner
-            .await
-            .unwrap_or_else(|error| panic!("join command owner: {error}"))
-            .unwrap_or_else(|error| panic!("cancel fixture command: {error}"));
+        let cancellation = CancellationToken::new();
+        let environment = CommandEnvironment::from_pairs([]);
+        let mut execution = std::pin::pin!(execute_with_operations(
+            &workspace.0,
+            arguments,
+            &environment,
+            cancellation.clone(),
+            &PatientOperations,
+        ));
+        let output = tokio::select! {
+            result = &mut execution => panic!("the fixture must wait to be cancelled: {result:?}"),
+            () = wait_for_file(&ready) => {
+                let process_group = read_pid(&ready);
+                cancellation.cancel();
+                let output = execution
+                    .await
+                    .unwrap_or_else(|error| panic!("cancel fixture command: {error}"));
+                assert_group_gone(process_group);
+                output
+            }
+        };
         assert_eq!(output.cause, ExitCause::Cancelled);
         assert_eq!(
             std::fs::read_to_string(term_seen)
                 .unwrap_or_else(|error| panic!("SIGTERM trap did not run: {error}")),
             "term"
         );
-        assert_group_gone(process_group);
         assert_eq!(output.owned_drains_at_return, 0);
         assert!(!output.sent_sigkill, "graceful SIGTERM must return early");
     }
