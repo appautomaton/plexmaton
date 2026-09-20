@@ -80,10 +80,12 @@ context_window_tokens = 32768
 max_output_tokens = 4096
 output_reserve_tokens = 4096
 
-# Set the actual proxy URL, advertised model ID and API; no backend is inferred from its name.
+# Any OpenAI-compatible server you run yourself: a local model host, a test server, a proxy in
+# front of hosted models. Set its real URL, advertised model ID and API. The port below is a
+# placeholder, Plexmaton has no default of its own, and no backend is inferred from a route's name.
 
 [providers.proxy]
-base_url = "http://127.0.0.1:8317/v1"
+base_url = "http://127.0.0.1:1234/v1"
 api_key_env = "PLEXMATON_PROXY_API_KEY"
 api = "openai_chat_completions"
 
@@ -98,7 +100,7 @@ output_reserve_tokens = 4096
 # Gemini facade of CLIProxyAPI; its backend owns Antigravity OAuth and CloudCode wrapping.
 # Select this route only when the proxy advertises the model ID below (or its configured alias).
 [providers.cliproxy_gemini]
-base_url = "http://127.0.0.1:8317/v1beta"
+base_url = "http://127.0.0.1:1234/v1beta"
 api_key_env = "PLEXMATON_PROXY_API_KEY"
 api = "google_generate_content"
 
