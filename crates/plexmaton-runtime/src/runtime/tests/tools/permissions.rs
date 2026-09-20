@@ -263,14 +263,15 @@ async fn cmd_7_revoking_the_preset_brings_the_question_back() {
     runtime.shutdown().await.expect("cancel the waiting call");
 }
 
-/// PER-3/PER-7: the seeded file preset writes the project and still asks for the control plane.
+/// PER-3/PER-11: the seeded file preset writes the pinned root entire, control plane included.
 ///
-/// The exclusion is the reason this is the preset rather than a policy default: an edit reaches
-/// only what WFS-1 and MUT-2 pin, so the question buys nothing inside the project, while the paths
-/// that configure the agent are exactly where it still buys something.
+/// A control-plane name list carved out of that root would have made `.agents/` ask through the
+/// editor while CMD-7's fence grants the same path to every shell command — one Session preset
+/// answering one question two ways, and the asking half is the route a model does not need. The
+/// bound is what WFS-1 and MUT-2 pin; inside it nothing is carved back out.
 #[tokio::test]
-async fn per_3_a_seeded_preset_writes_the_project_and_asks_for_the_control_plane() {
-    let workspace = TestWorkspace::new("preset-exclusions");
+async fn per_11_a_seeded_preset_writes_the_pinned_root_including_the_control_plane() {
+    let workspace = TestWorkspace::new("preset-covers-root");
     let driver = FakeDriver::new([Script::Events(vec![
         called(
             0,
@@ -296,29 +297,27 @@ async fn per_3_a_seeded_preset_writes_the_project_and_asks_for_the_control_plane
     )
     .unwrap_or_else(|error| panic!("construct runtime: {error}"));
     submit(&mut runtime, "write both").await;
-    // Both conditions, because an approval can appear before the allowed sibling has finished.
+    let control_file = workspace.0.join(".agents/note.md");
     tokio::time::timeout(Duration::from_secs(5), async {
-        while runtime.agent.pending_approvals().count() == 0
-            || !workspace.0.join("note.txt").exists()
-        {
+        while !workspace.0.join("note.txt").exists() || !control_file.exists() {
             runtime.next_update().await.expect("drive both calls");
         }
     })
     .await
-    .expect("the ordinary write runs and the control-plane write waits");
+    .expect("both writes run on the seeded preset");
     assert_eq!(
         std::fs::read_to_string(workspace.0.join("note.txt")).expect("project file"),
-        "ordinary",
-        "an ordinary project write runs on the seeded preset"
+        "ordinary"
     );
-    let pending: Vec<_> = runtime.agent.pending_approvals().collect();
-    assert_eq!(pending.len(), 1);
     assert_eq!(
-        pending[0].admitted().requested().call_id.as_str(),
-        "control-file",
-        "the preset excludes agent-control paths at any depth"
+        std::fs::read_to_string(&control_file).expect("control-plane file"),
+        "instructions",
+        "a path inside the pinned root is not carved back out of the grant"
     );
-    assert!(!workspace.0.join(".agents/note.md").exists());
-    drop(pending);
-    runtime.shutdown().await.expect("cancel the waiting write");
+    assert_eq!(
+        runtime.agent.pending_approvals().count(),
+        0,
+        "a call the bound covers does not need the question the bound replaces"
+    );
+    runtime.shutdown().await.expect("shut down");
 }

@@ -22,12 +22,19 @@ when its addition authorizes the whole admitted operation; explicit Ask/Deny can
 remembering it. APV-3 still applies.
 
 **PER-3 — A preset names definitions.** The native inspection preset pins read and search
-identities/revisions; the native file-change preset pins create and edit identities/revisions and
-excludes agent-control/configuration paths and Git metadata. The confined-command preset pins the
+identities/revisions; the native file-change preset pins create and edit identities/revisions, and
+its scope is the pinned root entire. The confined-command preset pins the
 command definition and is offered only where [command-tool](./command-tool.md) CMD-7 reports it can
 fence one, so its presence is the assertion that a fence exists. Neither a capability nor a similar
 display name makes another tool a member. Typed permission subjects are issued by the trusted
 catalog through its APV-1 ticket, never reconstructed from approval detail.
+
+Rejected: excluding agent-control paths and Git metadata — `.git`, `.plexmaton`, `.agents`,
+`.codex`, `agents.md` at any depth — from the file-change preset. The two halves of one Session
+preset then answered the same question differently: CMD-7's fence grants every path beneath the
+workspace root to every shell command, which is the route that actually writes `.git`, so the
+exclusion asked about the one route a model does not need. It also carved approvals back into the
+blast zone the position had just declared acceptable, on the path this repository writes most.
 
 **PER-11 — A Session starts granting what it already bounds.** A coding Session seeds the native
 file-change preset, and the confined-command preset where PER-3 offers one. A call the system
@@ -36,13 +43,12 @@ bounds does not need the question the bound replaces: an edit reaches only what
 MUT-2 pin, and a command reaches only what CMD-7 fences. Both are ordinary Session grants — a
 `/permissions` row, revocable, gone with the process — so revoking one restores its question, and
 nothing is granted that PER-2's precedence cannot still refuse. What keeps asking is what no bound
-covers: PER-3's excluded control-plane paths, a command on a host with no fence, and every explicit
-Deny or Ask rule, which PER-2 consults before any grant.
+covers: a command on a host with no fence, and every explicit Deny or Ask rule, which PER-2
+consults before any grant.
 
 Rejected: dropping `FileWrite` and `ProcessSpawn` from the policy's fallback instead. It reaches
-the same silence and loses the two things that make it answerable — the exclusions live on the
-preset, so a policy default would have granted the control plane too, and an invisible default
-cannot be revoked from `/permissions` or turned off for one Session.
+the same silence and loses what makes it answerable — a fallback has no `/permissions` row, so it
+cannot be seen, revoked, or turned off for one Session.
 
 **PER-4 — Reuse retains scope and revision.** Exact command grants match exact source, definition,
 revision and captured execution context, including the physical working directory, shell and

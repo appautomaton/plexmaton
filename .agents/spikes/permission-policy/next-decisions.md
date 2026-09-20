@@ -52,6 +52,7 @@ it lands, the honest sentence stays.
 | **No capability warnings** | Telling this user that a server they installed needs the network is telling them what they decided |
 | **Show, never ask** | Starting the session is the authorization. A prompt substitutes for the user's decision; a record supports it. What replaces pre-approval is visibility and interruptibility — seeing what is happening, and being able to stop it |
 | **Confinement is a recorded fact, not a platform accident** | macOS gets a fence and Linux will not for now. If that difference is implicit, work that succeeds on both succeeds for different reasons and nobody can see which |
+| **Nothing is carved back out of the zone.** No control-plane name list on the file-change preset | Rejected: excluding `.git`, `.plexmaton`, `.agents`, `.codex` and `agents.md` at any depth. The fence grants every path beneath the workspace root to every shell command, which is the route that actually writes `.git`, so the exclusion asked about the one route a model does not need — one preset answering one question two ways. It also reinstated in-zone approvals on the path this repository writes most, which is the reflex the position exists to prevent |
 
 ## The axes a design is judged on
 
@@ -90,9 +91,9 @@ preset, and the confined-command preset where a fence exists to hold it. Both ar
 `/permissions` rows, so the owner can take either back and the question returns — which is also how
 every fixture that needs a call that waits gets one, without depending on the host it runs on.
 
-Rejected: relaxing the policy's fallback instead. It reached the same silence and lost the two
-things that made it answerable — PER-3's exclusions live on the preset, so a fallback would have
-granted the control plane too, and an invisible default is not revocable.
+Rejected: relaxing the policy's fallback instead. It reached the same silence and lost what made it
+answerable — a fallback has no `/permissions` row, so it cannot be seen, revoked, or turned off for
+one Session.
 
 The write-root list is settled enough to use: workspace, temporary directory, and the toolchain
 caches under `HOME`. A real `cargo build` compiles fresh dependencies under the generated profile.
@@ -112,8 +113,3 @@ Its failure mode is a clean denied write, so the tail of real-use corrections is
    not build. Deleting `prefix` before PER-11 would have made approvals worse; after it, a command
    on a fenced host never reaches a prefix offer. A mechanism goes with its spec, tests and
    citations together, so this is its own change.
-4. **How wide the control-plane exclusion should be.** PER-3 excludes `.git`, `.plexmaton`,
-   `.agents`, `.codex` and `agents.md` at any depth. With the preset seeded that list is now load
-   -bearing every day: in this repository the documentation workflow writes `.agents/` constantly,
-   and each of those writes now asks. The owner's instinct was that `.git` alone is what deserves
-   protecting. Deciding that is a change to PER-3, with the frames that go with it.

@@ -18,11 +18,13 @@ pub use configuration::ProjectPermissionConfigurationSource;
 /// Starts a coding Session with PER-3's native file-change preset already granted.
 ///
 /// An edit reaches only what WFS-1 and MUT-2 already pin — beneath one workspace root, through
-/// no-follow descriptors, with authority narrower than the path string the model wrote — so the
-/// question it used to ask had one answerable region, and that region is the one the owner chose
-/// by starting here. The preset rather than the policy, because the preset is where this repository
-/// already decided the control plane is different: it excludes agent-control and configuration
-/// paths and Git metadata, and those keep asking.
+/// no-follow descriptors, with authority narrower than the path string the model wrote — and that
+/// root is the one the owner chose by starting here. The bound covers the whole zone, so nothing
+/// inside it is carved back out: a name list that made `.git` ask through the editor while CMD-7's
+/// fence grants the same path to every shell command would answer one question two ways.
+///
+/// The preset rather than the policy's fallback, because a fallback is invisible: it cannot be
+/// revoked from `/permissions` or turned off for one Session.
 ///
 /// It stays a Session grant with a `/permissions` row: revocable for the rest of this process,
 /// seeded again next one, which is the lifetime PER-1 and PER-2 give it.

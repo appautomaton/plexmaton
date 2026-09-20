@@ -84,7 +84,7 @@ impl PermissionMatcher {
         match self {
             Self::NativeInspection { .. } => "Native workspace inspection".to_owned(),
             Self::NativeFileChanges { .. } => {
-                "Native create/edit; excludes agent controls and Git metadata".to_owned()
+                "Native create/edit, beneath the workspace root".to_owned()
             }
             Self::ConfinedCommands { .. } => {
                 "Commands, confined by the OS to this workspace and its caches".to_owned()

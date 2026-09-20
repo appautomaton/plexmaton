@@ -108,13 +108,10 @@ impl PermissionMatcher {
             (
                 Self::NativeFileChanges { create, edit },
                 PermissionSubject::NativeFileChange(change),
-            ) => {
-                change.is_project_file()
-                    && match change.operation() {
-                        subject::FileChangeOperation::Create => create.matches(call),
-                        subject::FileChangeOperation::Edit => edit.matches(call),
-                    }
-            }
+            ) => match change.operation() {
+                subject::FileChangeOperation::Create => create.matches(call),
+                subject::FileChangeOperation::Edit => edit.matches(call),
+            },
             (Self::ConfinedCommands { definition }, PermissionSubject::Command { .. }) => {
                 definition.matches(call)
             }
