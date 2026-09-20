@@ -26,6 +26,70 @@ use super::{
 };
 use crate::NativeToolCatalog;
 
+/// Puts a coding Session back to asking about commands.
+///
+/// These fixtures are about the approval machinery — its commit boundary, its routing, what a
+/// remembered scope covers — and they use a command as the call that waits. CMD-7's preset removes
+/// that wait, so the fixture restores it the way an owner does, by revoking the preset from
+/// `/permissions`. A state the product actually reaches, not a seam cut for the test, and one that
+/// reads the same on a host with no fence: there is no preset to revoke and commands already ask.
+pub(crate) fn ask_about_commands(session: &crate::CodingSessionPermissions) {
+    let snapshot = session.snapshot().expect("current Session view");
+    let Some(grant) = snapshot.grants().iter().find(|grant| {
+        grant.origin == plexmaton_agent::PermissionGrantOrigin::ConfinedCommandPreset
+    }) else {
+        return;
+    };
+    session
+        .revoke_session_grant(snapshot.revision(), &grant.id)
+        .unwrap_or_else(|error| panic!("revoke the confined-command preset: {error:?}"));
+}
+
+/// Puts a coding Session back to asking about native file changes.
+///
+/// The companion to [`ask_about_commands`], for the fixtures whose call that waits is an edit
+/// rather than a command. Revoking is what an owner does from `/permissions`, and PER-7's own
+/// fixture needs the setting off before it can prove that turning it on releases what waited.
+pub(crate) fn ask_about_file_changes(session: &crate::CodingSessionPermissions) {
+    let snapshot = session.snapshot().expect("current Session view");
+    let Some(grant) = snapshot
+        .grants()
+        .iter()
+        .find(|grant| grant.origin == plexmaton_agent::PermissionGrantOrigin::NativeFilePreset)
+    else {
+        return;
+    };
+    session
+        .revoke_session_grant(snapshot.revision(), &grant.id)
+        .unwrap_or_else(|error| panic!("revoke the native file preset: {error:?}"));
+}
+
+/// How many of these grants a decision produced, as opposed to the presets a Session seeds.
+///
+/// A total was the old proxy for "the approval applied one grant", and it stopped meaning that
+/// once a Session starts with presets of its own. Counting the origin says what was meant, and
+/// keeps saying it whatever else the Session carries.
+pub(crate) fn approved(grants: &[plexmaton_agent::PermissionGrant]) -> usize {
+    grants
+        .iter()
+        .filter(|grant| grant.origin == plexmaton_agent::PermissionGrantOrigin::Approval)
+        .count()
+}
+
+/// The one grant a decision produced, for a fixture that then revokes or names it.
+///
+/// Index 0 was the old way to reach it, and a Session that seeds presets puts one of those first.
+pub(crate) fn approved_grant(
+    grants: &[plexmaton_agent::PermissionGrant],
+) -> &plexmaton_agent::PermissionGrant {
+    let mut approved = grants
+        .iter()
+        .filter(|grant| grant.origin == plexmaton_agent::PermissionGrantOrigin::Approval);
+    let grant = approved.next().expect("a decision applied one grant");
+    assert!(approved.next().is_none(), "more than one applied grant");
+    grant
+}
+
 pub(crate) enum Script {
     Events(Vec<ModelEvent>),
     Fail(ModelError),

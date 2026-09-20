@@ -314,7 +314,7 @@ impl PermissionPanel {
                 ],
                 PermissionAction::EnableNativeFiles => vec![
                     "Allow native create/edit in this workspace?".to_owned(),
-                    "Excludes agent controls, configuration paths and Git metadata. Commands need their own permission.".to_owned(),
+                    "Covers every path beneath the workspace root, including .git and .agents. Commands need their own permission.".to_owned(),
                     "Until Plexmaton exits; kept across conversations.".to_owned(),
                 ],
                 PermissionAction::Revoke(id) => vec![

@@ -1,5 +1,6 @@
 //! Narrow Unix process-operation seam used by supervision fault tests (CMD-5 and CMD-6).
 
+use std::time::Duration;
 use std::{io, process::ExitStatus};
 
 use rustix::{
@@ -21,6 +22,16 @@ pub(crate) trait ProcessOperations {
 
     fn before_child_try_wait(&self) -> io::Result<()> {
         Ok(())
+    }
+
+    /// How long SIGTERM is given before escalation (CMD-5).
+    ///
+    /// Production answers with the product's own grace. A test proving that a cooperative command
+    /// is never escalated widens it instead of betting that a shell wins a fixed wall-clock race
+    /// against every sibling test spawning processes beside it. Widening can only strengthen that
+    /// test: with a grace no loaded machine can exhaust, a SIGKILL means a real hang.
+    fn termination_grace(&self) -> Duration {
+        crate::executor::TERMINATION_GRACE
     }
 }
 

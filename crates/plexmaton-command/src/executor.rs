@@ -11,12 +11,13 @@ use tokio_util::sync::CancellationToken;
 
 use crate::admission::CanonicalArguments;
 use crate::capture::{CapturedStream, DrainTracker, drain};
+use crate::confinement::Confinement;
 use crate::environment::CommandEnvironment;
 use crate::process::{OsProcessOperations, ProcessOperations, try_wait_child, wait_for_child};
 use crate::result::{CommandExecutionError, CommandOutput, ExitCause, OutputStream};
 
 const SHELL: &str = "/bin/sh";
-const TERMINATION_GRACE: Duration = Duration::from_secs(1);
+pub(crate) const TERMINATION_GRACE: Duration = Duration::from_secs(1);
 const GROUP_SETTLE_DEADLINE: Duration = Duration::from_secs(1);
 const GROUP_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const DRAIN_GRACE: Duration = Duration::from_secs(2);
@@ -44,9 +45,14 @@ async fn execute_with_operations<O: ProcessOperations>(
     cancellation: CancellationToken,
     operations: &O,
 ) -> Result<CommandOutput, CommandExecutionError> {
+    // Resolved before the cancellation check so both exits report the same decision: the field
+    // answers "was this command fenced", and a cancelled command must not answer differently from
+    // the one that ran.
+    let confinement = Confinement::resolve(workspace_root, SHELL);
     if cancellation.is_cancelled() {
         return Ok(CommandOutput {
             cause: ExitCause::Cancelled,
+            confinement,
             stdout: CapturedStream::empty(),
             stderr: CapturedStream::empty(),
             #[cfg(test)]
@@ -55,8 +61,13 @@ async fn execute_with_operations<O: ProcessOperations>(
             sent_sigkill: false,
         });
     }
-    let mut command = Command::new(SHELL);
+    // The launcher applies its profile to itself and execs the shell, so the spawned pid is the
+    // shell's: `process_group(0)`, `child.id()` and every termination path below are unaffected by
+    // wrapping. Unconfined yields the shell with an empty prefix — byte-identical to no fence.
+    let (program, prefix) = confinement.launch(SHELL);
+    let mut command = Command::new(program);
     command
+        .args(prefix)
         .arg("-c")
         .arg(arguments.cmd)
         .current_dir(workspace_root)
@@ -143,6 +154,7 @@ async fn execute_with_operations<O: ProcessOperations>(
     let (stdout, stderr) = drains?;
     Ok(CommandOutput {
         cause,
+        confinement,
         stdout,
         stderr,
         #[cfg(test)]
@@ -189,7 +201,7 @@ async fn terminate_and_reap(
     operations: &impl ProcessOperations,
 ) -> Result<TerminationReport, CommandExecutionError> {
     signal_group(operations, process_group, Signal::TERM, "SIGTERM")?;
-    let deadline = tokio::time::Instant::now() + TERMINATION_GRACE;
+    let deadline = tokio::time::Instant::now() + operations.termination_grace();
     let mut root_reaped = false;
     loop {
         if !root_reaped {
@@ -235,7 +247,7 @@ async fn terminate_group(
     operations: &impl ProcessOperations,
 ) -> Result<TerminationReport, CommandExecutionError> {
     signal_group(operations, process_group, Signal::TERM, "SIGTERM")?;
-    let deadline = tokio::time::Instant::now() + TERMINATION_GRACE;
+    let deadline = tokio::time::Instant::now() + operations.termination_grace();
     loop {
         if !process_group_exists(operations, process_group)? {
             return Ok(TerminationReport::default());
@@ -420,8 +432,8 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::{
-        CapturedStream, CommandEnvironment, ExitCause, ProcessOperations, execute,
-        execute_with_operations, join_drains,
+        CapturedStream, CommandEnvironment, Confinement, ExitCause, ProcessOperations, SHELL,
+        execute, execute_with_operations, join_drains,
     };
     use crate::admission::{COMMAND_TOOL_NAME, CommandTool};
     use crate::capture::MAX_RETAINED_STREAM_BYTES;
@@ -646,20 +658,36 @@ mod tests {
     ) -> (super::CommandExecutionError, Pid) {
         let workspace = TestWorkspace::new();
         let operations = InjectingProcessOperations::new(failure);
+        let ready = workspace.0.join("ready.pid");
+        // SIGTERM stays ignored so termination must reach SIGKILL, which is where the injected
+        // operation fires. The marker is the readiness signal the rest of this module uses: a
+        // deadline racing process startup decides nothing, and CMD-7's launcher adds real
+        // milliseconds in front of the shell, so a 25 ms budget lost that race intermittently.
         let arguments = crate::admission::CanonicalArguments {
-            cmd: "trap '' TERM; exec /bin/sleep 30".to_owned(),
-            timeout_ms: 25,
+            cmd: "trap '' TERM; /bin/sleep 30 & printf '%s' $$ > ready.pid; wait".to_owned(),
+            timeout_ms: 5_000,
             workspace_root: workspace.0.to_string_lossy().into_owned(),
         };
-        let error = execute_with_operations(
+        let cancellation = CancellationToken::new();
+        let environment = CommandEnvironment::from_pairs([]);
+        let mut execution = std::pin::pin!(execute_with_operations(
             &workspace.0,
             arguments,
-            &CommandEnvironment::from_pairs([]),
-            CancellationToken::new(),
+            &environment,
+            cancellation.clone(),
             &operations,
-        )
-        .await
-        .expect_err("injected supervision operation must fail");
+        ));
+        // Whichever comes first. An injection on the wait path fails before the command can reach
+        // its marker and needs no trigger; one on the termination path needs the command alive,
+        // which the marker — not elapsed time — is what establishes.
+        let result = tokio::select! {
+            result = &mut execution => result,
+            () = wait_for_file(&ready) => {
+                cancellation.cancel();
+                execution.await
+            }
+        };
+        let error = result.expect_err("injected supervision operation must fail");
         assert!(operations.fired.load(Ordering::SeqCst));
         let process_group = operations.spawned_group();
         (error, process_group)
@@ -960,35 +988,67 @@ mod tests {
         assert_eq!(output.stdout.to_lossy_utf8(), "��A");
     }
 
+    /// A grace no loaded machine can exhaust, so a SIGKILL here means a hang, not a slow scheduler.
+    ///
+    /// The product's own one-second grace made this assertion a wall-clock race against every
+    /// sibling test spawning processes beside it, and it lost about one run in six.
+    struct PatientOperations;
+
+    impl ProcessOperations for PatientOperations {
+        fn kill_process_group(&self, process_group: Pid, signal: Signal) -> Result<(), Errno> {
+            kill_process_group(process_group, signal)
+        }
+
+        fn test_kill_process_group(&self, process_group: Pid) -> Result<(), Errno> {
+            test_kill_process_group(process_group)
+        }
+
+        fn termination_grace(&self) -> Duration {
+            Duration::from_secs(60)
+        }
+    }
+
     #[tokio::test]
     async fn cmd_5_cancellation_gracefully_terms_reaps_and_joins_drains() {
         let workspace = TestWorkspace::new();
-        let tool = workspace.tool();
         let ready = workspace.0.join("ready.pid");
         let term_seen = workspace.0.join("term-seen");
-        // Shell wait is interruptible: the trap must run before the grace deadline (CMD-5).
-        let command = "trap 'printf term > term-seen; exit 0' TERM; /bin/sleep 30 & printf '%s' $$ > ready.pid; wait";
-        let cancellation = CancellationToken::new();
-        let runner = {
-            let tool = tool.clone();
-            let call = admitted(&tool, command, 5_000);
-            let cancellation = cancellation.clone();
-            tokio::spawn(async move { tool.execute(&call, cancellation).await })
+        // Shell wait is interruptible, so the trap runs rather than the default disposition, which
+        // is what distinguishes a graceful SIGTERM from the escalation this test forbids (CMD-5).
+        // The marker is renamed into place: one created by `>` and filled afterwards exists before
+        // it holds a pid, and hands the reader a truncated one.
+        let arguments = crate::admission::CanonicalArguments {
+            cmd: "trap 'printf term > term-seen; exit 0' TERM; /bin/sleep 30 & printf '%s' $$ > pid.part; mv pid.part ready.pid; wait".to_owned(),
+            timeout_ms: 60_000,
+            workspace_root: workspace.0.to_string_lossy().into_owned(),
         };
-        wait_for_file(&ready).await;
-        let process_group = read_pid(&ready);
-        cancellation.cancel();
-        let output = runner
-            .await
-            .unwrap_or_else(|error| panic!("join command owner: {error}"))
-            .unwrap_or_else(|error| panic!("cancel fixture command: {error}"));
+        let cancellation = CancellationToken::new();
+        let environment = CommandEnvironment::from_pairs([]);
+        let mut execution = std::pin::pin!(execute_with_operations(
+            &workspace.0,
+            arguments,
+            &environment,
+            cancellation.clone(),
+            &PatientOperations,
+        ));
+        let output = tokio::select! {
+            result = &mut execution => panic!("the fixture must wait to be cancelled: {result:?}"),
+            () = wait_for_file(&ready) => {
+                let process_group = read_pid(&ready);
+                cancellation.cancel();
+                let output = execution
+                    .await
+                    .unwrap_or_else(|error| panic!("cancel fixture command: {error}"));
+                assert_group_gone(process_group);
+                output
+            }
+        };
         assert_eq!(output.cause, ExitCause::Cancelled);
         assert_eq!(
             std::fs::read_to_string(term_seen)
                 .unwrap_or_else(|error| panic!("SIGTERM trap did not run: {error}")),
             "term"
         );
-        assert_group_gone(process_group);
         assert_eq!(output.owned_drains_at_return, 0);
         assert!(!output.sent_sigkill, "graceful SIGTERM must return early");
     }
@@ -1105,6 +1165,96 @@ mod tests {
         assert!(!output.stderr.is_complete());
         assert_eq!(output.owned_drains_at_return, 0);
         assert!(output.to_model_text().contains("stdout_complete: false"));
+    }
+
+    #[tokio::test]
+    async fn cmd_7_writes_outside_the_granted_roots_are_denied_by_the_os() {
+        // The fence through the real execution path, rather than asserted on argv. Both states
+        // assert: where no profile can be applied — off macOS, or inside an outer sandbox that
+        // forbids nesting — the claim under test becomes that the spawn is unchanged, which is
+        // what keeps an unfenced host honest instead of quietly untested.
+        let workspace = TestWorkspace::new();
+        let confinement = Confinement::resolve(&workspace.0, SHELL);
+        let tool = workspace.tool();
+
+        let inside = tool
+            .execute(
+                &admitted(&tool, "echo fenced > inside.txt", 5_000),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("execute in-zone write: {error}"));
+        assert_eq!(inside.cause, ExitCause::Exited { code: 0 });
+        assert!(workspace.0.join("inside.txt").exists(), "in-zone write");
+        assert_eq!(
+            inside.confinement, confinement,
+            "the result carries the decision the launch was made under"
+        );
+
+        let Confinement::Enforced { roots, .. } = &confinement else {
+            let (program, prefix) = confinement.launch(SHELL);
+            assert_eq!(program, OsStr::new(SHELL));
+            assert!(prefix.is_empty(), "an unfenced launch adds no arguments");
+            return;
+        };
+        let resolved_root = std::fs::canonicalize(&workspace.0).expect("workspace resolves");
+        assert!(roots.contains(&resolved_root), "workspace must be granted");
+
+        // A command that opens a character device for itself, which is what a denied `/dev/null`
+        // breaks: git, python and curl each open one and fail to start. CMD-2 supplies stdin from
+        // the parent, so an inherited descriptor satisfies any fixture that only redirects into a
+        // file — this one must open its own, or the regression passes unseen.
+        let devices = tool
+            .execute(
+                &admitted(
+                    &tool,
+                    "sh -c 'exec 3>/dev/null; echo probe >&3' && echo opened",
+                    5_000,
+                ),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("execute device write: {error}"));
+        assert_eq!(
+            devices.cause,
+            ExitCause::Exited { code: 0 },
+            "a command opening /dev/null must start: {:?}",
+            String::from_utf8_lossy(devices.stderr.head())
+        );
+
+        // HOME exists and is not itself granted — only named subdirectories beneath it are — so a
+        // write here is denied by the fence rather than failing for a missing parent.
+        let outside = PathBuf::from(std::env::var_os("HOME").expect("HOME"))
+            .join(".plexmaton-confinement-probe");
+        let _cleanup = RemoveOnDrop(outside.clone());
+        let denied = tool
+            .execute(
+                &admitted(
+                    &tool,
+                    &format!("echo escaped > {}", outside.display()),
+                    5_000,
+                ),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("execute out-of-zone write: {error}"));
+        assert_ne!(
+            denied.cause,
+            ExitCause::Exited { code: 0 },
+            "the fence must deny a write outside every granted root"
+        );
+        assert!(
+            !outside.exists(),
+            "a denied write must not create its target"
+        );
+    }
+
+    struct RemoveOnDrop(PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
     }
 
     struct EscapedProcess(Pid);

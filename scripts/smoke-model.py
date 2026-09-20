@@ -56,6 +56,8 @@ output_reserve_tokens = 4096
                 terminal.resize(width, "Models", "second/same")
             terminal.send(ENTER, "second-wire", "high", absent=("Enter confirm",))
             terminal.wait("STATUS_CLEAN")
+            # MDL-3 is read off an admitted command, so this journey needs the admission itself.
+            terminal.restore_command_approvals()
             terminal.prompt("Check the command environment", "Approval required", "Allow once")
             terminal.send(b"1", "SECOND_DONE", absent=("Approval required",))
             assert (project / "credential-result").read_text() == "unset/unset"

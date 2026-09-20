@@ -77,6 +77,10 @@ output_reserve_tokens = 4096
             assert provider.snapshot() == ([], []), "trust alone contacted the provider"
             assert changes(home) == [{"kind": "trust", "fingerprint": list(hashlib.sha256(config.encode()).digest())}]
             terminal.close_permissions()
+            # The configured Allow rule below, and the prefix grant this journey saves, are the
+            # subjects here. Without this the seeded grant would carry both and neither would be
+            # under test.
+            terminal.restore_command_approvals()
             terminal.prompt("trusted fixture", "TRUSTED_DONE", absent=("Approval required",))
             assert (project / "trusted-result").read_text() == "trusted"
             terminal.prompt("remember prefix fixture", "Approval required", "Allow and remember", "ls first")
@@ -99,6 +103,9 @@ output_reserve_tokens = 4096
 
         with PermissionTerminal(project, environment, "restart") as terminal:
             terminal.wait("Message Plexmaton")
+            # A fresh process seeds again (PER-1), so the restart takes it back too: what survives
+            # here must be the Project prefix grant, not a grant this Session just created.
+            terminal.restore_command_approvals()
             terminal.prompt("reuse prefix fixture", "PREFIX_REUSED", absent=("Approval required",))
             requests, errors = provider.snapshot()
             assert not errors, errors

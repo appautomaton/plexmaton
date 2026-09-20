@@ -19,7 +19,7 @@
 │                                                                                             │
 │  1. Allow: Exact command: "git fetch origin"; fixed cwd and environment                     │
 │                                                                                             │
-│  2. Ask: Native create/edit; excludes agent controls and Git metadata                       │
+│  2. Ask: Native create/edit, beneath the workspace root                                     │
 │                                                                                             │
 │  SHA-256: abababababababababababababababababababababababababababababababab                  │
 │                                                                                             │

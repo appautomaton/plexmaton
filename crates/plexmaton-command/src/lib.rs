@@ -12,6 +12,7 @@ compile_error!("plexmaton-command currently requires Unix process groups");
 
 mod admission;
 mod capture;
+mod confinement;
 mod environment;
 mod executor;
 mod prefix;
@@ -24,6 +25,7 @@ pub use admission::{
     MAX_TIMEOUT_MS, command_parameters_schema,
 };
 pub use capture::{CapturedStream, MAX_RETAINED_STREAM_BYTES};
+pub use confinement::{Confinement, Unconfined};
 pub use result::{
     CommandExecutionError, CommandOutput, ExitCause, MAX_MODEL_OUTPUT_BYTES, OutputStream,
 };

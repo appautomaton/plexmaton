@@ -57,13 +57,17 @@ impl Drop for TestWorkspace {
 }
 
 fn runtime(driver: Arc<dyn ModelDriver>, workspace: &TestWorkspace) -> LiveRuntime {
-    LiveRuntime::with_driver(
+    let runtime = LiveRuntime::with_driver(
         agent_id(),
         "Plexmaton".to_owned(),
         driver,
         workspace.catalog(),
     )
-    .unwrap_or_else(|error| panic!("construct runtime: {error}"))
+    .unwrap_or_else(|error| panic!("construct runtime: {error}"));
+    // These fixtures use a command as the call that waits; CMD-7's preset removes the wait,
+    // so restore it the way an owner does. See `ask_about_commands`.
+    super::ask_about_commands(&runtime.coding_session());
+    runtime
 }
 
 pub(super) fn called(
@@ -194,6 +198,8 @@ async fn file_observation_survives_the_runtime_boundary_into_an_approved_edit() 
         ]),
     ]);
     let mut runtime = runtime(driver.clone(), &workspace);
+    // The edit is this fixture's call that waits; see `ask_about_file_changes`.
+    crate::runtime::tests::ask_about_file_changes(&runtime.coding_session());
     submit(&mut runtime, "update the note").await;
     let approval = next_approval(&mut runtime).await;
     allow_once(&mut runtime, approval).await;

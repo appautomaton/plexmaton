@@ -15,6 +15,31 @@ mod configuration;
 mod project;
 pub use configuration::ProjectPermissionConfigurationSource;
 
+/// Starts a coding Session with PER-3's native file-change preset already granted.
+///
+/// An edit reaches only what WFS-1 and MUT-2 already pin — beneath one workspace root, through
+/// no-follow descriptors, with authority narrower than the path string the model wrote — and that
+/// root is the one the owner chose by starting here. The bound covers the whole zone, so nothing
+/// inside it is carved back out: a name list that made `.git` ask through the editor while CMD-7's
+/// fence grants the same path to every shell command would answer one question two ways.
+///
+/// The preset rather than the policy's fallback, because a fallback is invisible: it cannot be
+/// revoked from `/permissions` or turned off for one Session.
+///
+/// It stays a Session grant with a `/permissions` row: revocable for the rest of this process,
+/// seeded again next one, which is the lifetime PER-1 and PER-2 give it.
+fn grant_native_file_changes(state: &mut SessionPermissions) {
+    let expected = state.snapshot().revision().clone();
+    state
+        .apply_control(&plexmaton_core::PermissionIntent {
+            expected,
+            action: plexmaton_core::PermissionAction::EnableNativeFiles,
+        })
+        .unwrap_or_else(|error| {
+            unreachable!("a fresh Session with its pair pinned accepts the preset: {error:?}")
+        });
+}
+
 /// One explicit shared owner for a coding Session's bounded, memory-only permission state.
 ///
 /// The CLI retains this handle across new and resumed conversations. Dropping a Conversation runtime does
@@ -34,13 +59,18 @@ impl CodingSessionPermissions {
         let id = CodingSessionId::new(format!("coding-{}", uuid::Uuid::now_v7()))
             .unwrap_or_else(|_| unreachable!("a UUID produces a nonempty identity"));
         let (create, edit) = plexmaton_file_tools::FileTools::permission_definitions();
+        let mut state = SessionPermissions::new(id).with_native_file_changes(create, edit);
+        // Commands only where the host can fence one; `None` keeps the question, which on an
+        // unfenced host is the only thing between a command and the owner's full authority.
+        if let Some(matcher) = tools.permission_compiler().confined_commands() {
+            state = state.with_confined_commands(matcher);
+        }
+        grant_native_file_changes(&mut state);
         Self {
             workspace: tools.permission_workspace(),
             project: None,
             configuration: None,
-            state: Arc::new(Mutex::new(
-                SessionPermissions::new(id).with_native_file_changes(create, edit),
-            )),
+            state: Arc::new(Mutex::new(state)),
         }
     }
 

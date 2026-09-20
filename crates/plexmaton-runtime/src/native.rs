@@ -139,6 +139,12 @@ impl NativePermissionCompiler {
         plexmaton_agent::PermissionMatcher::NativeFileChanges { create, edit }
     }
 
+    /// The command preset, where this host can fence one. `None` says it cannot.
+    #[must_use]
+    pub fn confined_commands(&self) -> Option<plexmaton_agent::PermissionMatcher> {
+        self.command.confined_permission()
+    }
+
     /// Explicit literal tokens retain the same definition and captured context as admission.
     #[must_use]
     pub fn command_prefix(

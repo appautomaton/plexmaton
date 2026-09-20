@@ -8,6 +8,7 @@ use thiserror::Error;
 use tokio::task::JoinError;
 
 use crate::capture::CapturedStream;
+use crate::confinement::Confinement;
 
 const MODEL_STREAM_TEXT_BYTES: usize = 30 * 1024;
 const MODEL_TRUNCATION_MARKER: &str = "\n...[model text truncated]...\n";
@@ -38,6 +39,12 @@ pub enum ExitCause {
 pub struct CommandOutput {
     /// Typed root-process outcome or executor stop reason.
     pub cause: ExitCause,
+    /// Whether the OS bounded this command's writes, and to which roots.
+    ///
+    /// Carried rather than inferred from the platform: a fence that is present on one host and
+    /// absent on another makes identical work succeed for different reasons, and the difference is
+    /// invisible unless something records it per command.
+    pub confinement: Confinement,
     /// Independently drained, bounded standard output.
     pub stdout: CapturedStream,
     /// Independently drained, bounded standard error.
@@ -227,6 +234,10 @@ mod tests {
     use plexmaton_core::ToolDetail;
 
     use super::{CommandOutput, ExitCause, MAX_MODEL_OUTPUT_BYTES};
+    use crate::confinement::{Confinement, Unconfined};
+
+    /// Presentation carries no confinement detail, so these fixtures name the plainest value.
+    const UNFENCED: Confinement = Confinement::Unconfined(Unconfined::UnsupportedPlatform);
     use crate::capture::{CapturedStream, MAX_RETAINED_STREAM_BYTES};
 
     #[test]
@@ -246,6 +257,7 @@ mod tests {
         ] {
             let output = CommandOutput {
                 cause,
+                confinement: UNFENCED,
                 stdout: CapturedStream::from_bytes(&invalid),
                 stderr: CapturedStream::from_bytes(b"distinct stderr"),
                 owned_drains_at_return: 0,
@@ -270,6 +282,7 @@ mod tests {
 
         let empty = CommandOutput {
             cause: ExitCause::Exited { code: 0 },
+            confinement: UNFENCED,
             stdout: CapturedStream::empty(),
             stderr: CapturedStream::empty(),
             owned_drains_at_return: 0,

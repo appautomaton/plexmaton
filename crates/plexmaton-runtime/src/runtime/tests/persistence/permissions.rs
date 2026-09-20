@@ -60,6 +60,9 @@ async fn pending_command_with_scope(
             .expect("project owner");
         runtime.use_coding_session(owner).expect("attach Project");
     }
+    // After any Session replacement, because these fixtures need a command that waits and the
+    // replacement carries its own preset. See `ask_about_commands`.
+    crate::runtime::tests::ask_about_commands(&runtime.coding_session());
     runtime
         .submit(agent_id(), submission())
         .await
@@ -105,7 +108,11 @@ async fn hold_prepared_execution(
     );
     let owner = runtime.coding_session();
     let snapshot = owner.snapshot().expect("prepared grant");
-    assert_eq!(snapshot.grants().len() + snapshot.project_grants().len(), 1);
+    assert_eq!(
+        crate::runtime::tests::approved(snapshot.grants())
+            + crate::runtime::tests::approved(snapshot.project_grants()),
+        1
+    );
 }
 
 /// PER-5/PER-9/JRN-7: a failed or uncertain Conversation audit preserves an applied grant but starts no effect.
@@ -139,12 +146,13 @@ async fn per_5_failed_remember_audit_never_dispatches_the_prepared_command() {
         );
         assert!(runtime.tools.is_empty(), "failure joins all workers");
         assert_eq!(
-            runtime
-                .coding_session()
-                .snapshot()
-                .expect("retained authority")
-                .grants()
-                .len(),
+            crate::runtime::tests::approved(
+                runtime
+                    .coding_session()
+                    .snapshot()
+                    .expect("retained authority")
+                    .grants()
+            ),
             1
         );
     }
@@ -161,7 +169,10 @@ async fn per_5_revocation_between_preparation_and_dispatch_refuses_the_effect() 
     let owner = runtime.coding_session();
     let view = owner.snapshot().expect("prepared grant");
     owner
-        .revoke_session_grant(view.revision(), &view.grants()[0].id)
+        .revoke_session_grant(
+            view.revision(),
+            &crate::runtime::tests::approved_grant(view.grants()).id,
+        )
         .expect("revoke before dispatch");
     control.gate.release();
     super::super::finish_active(&mut runtime).await;

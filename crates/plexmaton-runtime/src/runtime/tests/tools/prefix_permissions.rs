@@ -25,9 +25,12 @@ fn command(source: &str) -> Arc<FakeDriver> {
 }
 
 fn owner(workspace: &TestWorkspace, home: &TestWorkspace) -> crate::CodingSessionPermissions {
-    crate::CodingSessionPermissions::new(&workspace.catalog())
+    let owner = crate::CodingSessionPermissions::new(&workspace.catalog())
         .with_project_store(ProjectPermissionStore::open(&home.0, &workspace.0).expect("store"))
-        .expect("owner")
+        .expect("owner");
+    // A command is this fixture's call that waits; see `ask_about_commands`.
+    crate::runtime::tests::ask_about_commands(&owner);
+    owner
 }
 
 fn succeeded(runtime: &LiveRuntime, expected: &str) {

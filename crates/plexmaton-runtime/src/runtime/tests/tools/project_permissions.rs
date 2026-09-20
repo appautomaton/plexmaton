@@ -7,9 +7,12 @@ fn project_owner(
     home: &TestWorkspace,
 ) -> crate::CodingSessionPermissions {
     let store = ProjectPermissionStore::open(&home.0, &workspace.0).expect("project store");
-    crate::CodingSessionPermissions::new(&workspace.catalog())
+    let owner = crate::CodingSessionPermissions::new(&workspace.catalog())
         .with_project_store(store)
-        .expect("project owner")
+        .expect("project owner");
+    // A command is this fixture's call that waits; see `ask_about_commands`.
+    crate::runtime::tests::ask_about_commands(&owner);
+    owner
 }
 
 /// PER-6/PGR-2: a fresh coding Session reuses the actual stored command; a stale live owner observes revoke at dispatch.
@@ -50,8 +53,9 @@ async fn per_6_project_command_survives_restart_and_dispatch_observes_external_r
         .expect("remember project");
     finish_active(&mut first).await;
     let snapshot = first.coding_session().snapshot().expect("view");
-    assert!(
-        snapshot.grants().is_empty(),
+    assert_eq!(
+        crate::runtime::tests::approved(snapshot.grants()),
+        0,
         "Project is not a Session grant copy"
     );
     assert_eq!(snapshot.project_grants().len(), 1);

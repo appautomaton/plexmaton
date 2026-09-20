@@ -262,8 +262,8 @@ fn per_7_permission_controls_frames_keep_scope_and_confirmation_visible() {
         let confirmation = menu(&workspace, &terminal);
         for text in [
             "create/edit",
-            "configuration",
-            "metadata",
+            "workspace root",
+            ".git",
             "Commands",
             "Enable for this Session",
             "> Back",
@@ -362,7 +362,7 @@ fn project_view() -> PermissionStateView {
             },
             plexmaton_core::PermissionRuleView {
                 action: plexmaton_core::PermissionRuleAction::Ask,
-                label: "Native create/edit; excludes agent controls and Git metadata".to_owned(),
+                label: "Native create/edit, beneath the workspace root".to_owned(),
             },
         ],
     });

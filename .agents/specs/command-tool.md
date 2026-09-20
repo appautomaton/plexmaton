@@ -3,9 +3,9 @@
 | Field | Value |
 | --- | --- |
 | Status | Implemented |
-| Owns | Strict command admission, foreground Unix process-group ownership, bounded output capture and typed completion |
+| Owns | Strict command admission, foreground Unix process-group ownership, per-command write confinement, bounded output capture and typed completion |
 | Depends on | [tool-admission](./tool-admission.md) APV-1 through APV-3; [agent-loop](./agent-loop.md) LOOP-2 |
-| Proven by | `plexmaton-command::{admission,capture,executor}`, `plexmaton-runtime::runtime::tests::tools`, and `plexmaton-tui::frames` tests |
+| Proven by | `plexmaton-command::{admission,capture,confinement,executor}`, `plexmaton-runtime::runtime::tests::tools`, and `plexmaton-tui::frames` tests |
 
 ## Invariants
 
@@ -58,13 +58,47 @@ backstop. Partial output streaming remains outside this boundary.
 Rejected: detached Tokio tasks in place of joined workers, which would make direct `Drop` abandon
 cleanup. A later bounded supervisor may pool workers without changing this ownership rule.
 
+**CMD-7 — A launch is confined, or the result says it is not.** On macOS the shell is launched
+through a Seatbelt profile that denies writes outside a resolved root set — the admitted workspace
+root, both temporary directories, and the toolchain caches the owner's environment names — and
+leaves reads, network and process operations untouched. Both, because macOS answers `TMPDIR` with a
+per-user directory under `/private/var/folders` while `/tmp` is a separate system one, and a command
+hardcoding either reaches only the one it named. A relocating variable moves a cache rather than
+adding to it, and names the cache itself: `GOPATH` holds `src` beside `pkg/mod`, so granting its
+root would make every other Go project under it writable, which is source outside the admitted
+workspace and exactly what this denies. Stateless character devices are granted by name,
+because denying them confines nothing and instead stops ordinary programs from starting: `git`,
+`python` and `curl` all open `/dev/null` for themselves, and the inherited stdin CMD-2 supplies
+hides that from any test that only redirects into a file. The launcher applies the profile to itself and
+`exec`s the shell, so the spawned process is the shell and CMD-2's process group, CMD-5's signalling
+and CMD-3's drains are unaffected. Every root enters the profile as its own resolved form or does
+not enter it: an unresolved subpath compiles to a valid profile, exits zero and grants nothing.
+Where no profile can be applied — off macOS, without the launcher, or inside an outer sandbox that
+refuses nesting, which is probed once per process rather than per command — the spawn is byte
+-identical to an unconfined one and the typed result carries which case applied. The command itself
+is never inspected.
+
+A host that claims a fence proves it. Every test needing one steps aside where none exists, which
+is right for a developer inside an outer sandbox and would otherwise let a gate pass green with the
+whole mechanism unexercised, indistinguishable from one where it ran. The macOS gate therefore sets
+`PLEXMATON_FENCE_REQUIRED`, and where that is set an unavailable fence is a failure rather than a
+skip. Nothing else sets it, so nothing else is asserted.
+
+Rejected: matching commands for dangerous shapes, which any interpreter defeats under a different
+spelling and which cannot establish a command's effects in any case; and confining reads, which
+breaks toolchains one missing sysroot at a time while the model request is already the widest path
+off the machine.
+
 ## Workspace-root limit
 
-The canonical root is a starting directory, not a sandbox. An approved shell can use absolute
-paths, `..`, symlinks, network and inherited host authority. Environment scrubbing is secret
-hygiene; files and sockets remain. A descendant may escape group signalling with a new session;
-bounded drainage prevents retention but does not terminate it. Either escape needs later OS
-containment, and this implementation claims none.
+The canonical root is a starting directory, not the fence. CMD-7 bounds writes where it applies;
+everything else an approved shell reaches is unchanged — absolute paths, `..`, symlinks, network and
+inherited host authority. Environment scrubbing is secret hygiene; files and sockets remain. A
+descendant may escape group signalling with a new session; bounded drainage prevents retention but
+does not terminate it, and the fence neither worsens nor repairs that escape. Off macOS there is no
+fence, by decision: Landlock is in the kernel and bubblewrap sits beside it, but neither can be
+exercised on the host this was built on, and a fence that is never run reports confinement it may
+not deliver.
 
 The root's device and inode are rechecked immediately before spawn. POSIX offers no safe,
 first-party-`unsafe`-free way to make the final check and `current_dir(path)` one atomic operation,

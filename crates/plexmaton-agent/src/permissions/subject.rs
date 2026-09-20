@@ -42,17 +42,6 @@ impl NativeFileChange {
     pub(super) const fn operation(&self) -> FileChangeOperation {
         self.operation
     }
-
-    /// Broad file-change grants exclude agent controls and Git metadata at any nesting depth.
-    #[must_use]
-    pub fn is_project_file(&self) -> bool {
-        !self.path.split('/').any(|part| {
-            matches!(
-                part.to_ascii_lowercase().as_str(),
-                ".git" | ".plexmaton" | ".agents" | ".codex" | "agents.md"
-            )
-        })
-    }
 }
 
 /// Exact command source plus trusted execution context, independent of approval display text.

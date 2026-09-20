@@ -71,6 +71,16 @@ pub enum PermissionMatcher {
         /// Trusted edit definition.
         edit: PermissionDefinition,
     },
+    /// Every command the pinned definition admits, because the OS bounds what one can reach.
+    ///
+    /// Held only where a fence exists to hold it: the composition root grants this after its host
+    /// answers, so its presence is the assertion, and a host that cannot fence never produces one.
+    /// It covers the command's effects rather than its spelling — matching a command establishes
+    /// nothing about what it does, and a fence needs it to establish nothing.
+    ConfinedCommands {
+        /// Trusted command definition.
+        definition: PermissionDefinition,
+    },
     /// Literal argv prefix bound to execution context; every operation must be covered.
     CommandPrefix {
         /// Trusted command definition.
@@ -98,12 +108,12 @@ impl PermissionMatcher {
             (
                 Self::NativeFileChanges { create, edit },
                 PermissionSubject::NativeFileChange(change),
-            ) => {
-                change.is_project_file()
-                    && match change.operation() {
-                        subject::FileChangeOperation::Create => create.matches(call),
-                        subject::FileChangeOperation::Edit => edit.matches(call),
-                    }
+            ) => match change.operation() {
+                subject::FileChangeOperation::Create => create.matches(call),
+                subject::FileChangeOperation::Edit => edit.matches(call),
+            },
+            (Self::ConfinedCommands { definition }, PermissionSubject::Command { .. }) => {
+                definition.matches(call)
             }
             (
                 Self::ExactCommand {
@@ -189,6 +199,8 @@ pub enum PermissionGrantOrigin {
     Approval,
     /// The explicit native create/edit setting.
     NativeFilePreset,
+    /// Seeded at Session start on a host that can fence a command (CMD-7).
+    ConfinedCommandPreset,
 }
 
 /// Immutable policy view published by the Session owner; agents cannot mutate its authority.
@@ -219,14 +231,16 @@ impl PermissionSnapshot {
         let (matcher, label, note) = match call.permission_subject() {
             PermissionSubject::NativeFileChange(_) => {
                 let (create, edit) = self.native_files.as_ref()?;
-                (
-                    PermissionMatcher::NativeFileChanges {
-                        create: create.clone(),
-                        edit: edit.clone(),
-                    },
-                    "native create/edit; no controls/Git".to_owned(),
-                    None,
-                )
+                let matcher = PermissionMatcher::NativeFileChanges {
+                    create: create.clone(),
+                    edit: edit.clone(),
+                };
+                // The card reads its scope off the matcher it will apply. A second copy of that
+                // sentence is how a card comes to promise a narrower grant than the one it
+                // installs, which is the reading PER-10 exists to prevent — and nobody has to
+                // edit the card for it to happen.
+                let label = matcher.label();
+                (matcher, label, None)
             }
             PermissionSubject::Command { command, syntax } => {
                 let definition = PermissionDefinition::new(
