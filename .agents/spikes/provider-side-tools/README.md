@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Comparison and live measurement retained as evidence; the design question is not yet decided |
+| Status | Comparison and live measurement retained as evidence; the design is decided in [stage 33](../../plans/phase-04-stage-33-provider-side-tools.md) |
 | Read when | Adding web search, or any tool a provider runs on its own side rather than handing to this harness |
 | Question | Can a Session reach provider-hosted search without the harness losing sight of what was searched? |
 | Contract | [provider-adapter](../../specs/provider-adapter.md) PRV-1/PRV-3/PRV-5; [tool-admission](../../specs/tool-admission.md); [permission-policy](../../specs/permission-policy.md) PER-2 |
@@ -17,7 +17,7 @@ subprocess, but something the provider performs inside a call the owner already 
 ## Corpus
 
 Local source read 2026-09-20; no reference suite was run. Plexmaton base `c7bdf0a`, branch
-`spike/provider-side-tools`.
+`feat/provider-side-tools`.
 
 | Directory | Revision | Source root for references below |
 | --- | --- | --- |
@@ -46,10 +46,17 @@ continuation history, which is what keeps that request isolated. `getHostedWebSe
 whole thing on the active model's provider and API, and `syncWebSearchAvailability` adds or removes
 the tool from the active set as the model changes.
 
-The consequence is the part worth keeping: **the main conversation never contains a
+Its consequence is real and worth recording: **the main conversation never contains a
 `server_tool_use` block.** No new content-block type, no new semantic event, no replay hole, and the
-search takes the ordinary admission, permission and transcript path every other tool takes. PRV-5's
-refusal can stand untouched.
+search takes the ordinary admission, permission and transcript path every other tool takes.
+
+Rejected all the same, for two reasons that only appear once it is drawn against this codebase. A
+tool that issues its own model request needs to reach a provider route, and native tools here reach
+a workspace, ripgrep and a command — giving them a route is a larger boundary change than the one it
+saves. And it spends a second model call for every search, chosen by the harness rather than by the
+owner, which is exactly the accounting question the owner has no surface to answer. The owner's
+instruction settles the rest: the declaration goes to the server side, and the harness renders what
+returns.
 
 `grok-build` sits nearer Codex, handling search inside the pager's scrollback block types.
 `claude-code`'s only server-tool surface in readable source is the usage counter shape
@@ -83,32 +90,33 @@ The failure mode of a declaration is known and cheap: it can be wrong. The live 
 `max` among muse's efforts and the route refused it. The fix was to correct the declaration, never
 to add an inference that would have guessed around it.
 
-Rejected: pi's gating, which is the right architecture reached through the wrong door. Its
+Rejected: gating on the model's identity, which is how every harness read here decides it. pi's
 `getHostedWebSearchRoute` matches provider names and `id.startsWith("claude-")`, so every new route
 and every renamed model is a code change, and a model the owner knows supports search cannot be
-told so. Take the isolated client tool; leave the name matching.
+told so. A declaration costs one line in a file the owner already edits and answers both.
 
 ## What this costs in Plexmaton
 
-`NativeToolCatalog::open` builds a fixed catalog: `FileTools::definitions()` plus the command tool.
-There is no extension registration, so pi's shape arrives here as a native tool beside the others
-rather than as a plugin. That is a smaller change than it sounds, and it lands entirely outside the
-provider adapter.
+The chosen shape is Codex's, narrowed by the declaration. Cost lands in the provider adapter and the
+transcript, and Codex's own use sites measure the blast radius honestly: a response variant is
+matched wherever the enum is already matched, so compaction, persisted state, timing and replay each
+have to say what they do with it. Plexmaton's equivalent is one new semantic event, and the sites
+that match its event vocabulary are the ones to count before writing any of it.
 
-One wrinkle has no answer yet. pi recomputes tool availability when the model changes; Plexmaton's
-catalog is built when the workspace opens, while `/model` changes the model mid-Session. A tool that
-only works on some routes therefore needs either a catalog that can narrow after open, or a tool
-that refuses with a typed error naming the route it needed.
+What the declaration buys is that none of this reaches a model that did not ask for it. A route
+with no hosted tools encodes nothing new and decodes nothing new, so the existing four dialects keep
+their current behaviour exactly.
+
+[Stage 33](../../plans/phase-04-stage-33-provider-side-tools.md) owns the order.
 
 ## Open
 
-- Does the isolated-request shape survive delegation, cancellation and compaction, or does an
-  inner model call inside a tool break an invariant those own?
-- Where does the inner call's token usage belong? It is spend the owner never selected a model for.
 - Is strict cloaking what strips search results on the local gateway, or does the upstream never
   send them? `claude_executor_cloaking.go` handles `server_tool_use` and is the place to look.
 - Codex's standalone path populates `results`. Worth reading before assuming the findings are
   always unavailable.
+- Where does hosted-tool spend belong? The usage counter names requests rather than tokens, and
+  no surface shows provider-side work today.
 
 ## Limits
 

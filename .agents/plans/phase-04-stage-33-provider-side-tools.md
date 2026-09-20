@@ -1,0 +1,76 @@
+# Plan — Phase 04 stage 33, provider-side tools
+
+| Field | Value |
+| --- | --- |
+| Phase | [Phase 04](../phases/phase-04-product-polish.md) stage 33 |
+| Contract | PRV-1/PRV-3/PRV-5/PRV-6, [tool-admission](../specs/tool-admission.md), [ui-ux](../ui-ux.md) transcript grammar |
+| Evidence | [Provider-side tools spike](../spikes/provider-side-tools/README.md) |
+| Status | Slicing; no slice implemented |
+
+## Outcome
+
+A model may declare the hosted tools its route accepts, and a Session using that model reaches
+provider-hosted web search without the transcript losing sight of what was searched. The harness
+forwards a declaration and renders what comes back. It never runs the search, never infers the
+capability from a model's name, and never silently absorbs a block it cannot show.
+
+Reversal recorded deliberately: PRV-5 currently states that a provider-side block is refused. That
+sentence was true when written and this stage rewrites it, along with the rejected alternative
+beside it, rather than leaving a second reading in the corpus.
+
+## Slices
+
+1. **Declaration.** A model entry gains a hosted-tool subset, validated the way
+   `allowed_reasoning_efforts` already is: present or absent, nonempty and unique when present, and
+   encodable by that model's dialect. A declaration a dialect cannot spell fails at config load,
+   before any network work. PRV-6 gains the field; nothing infers it from a provider or model name.
+
+2. **Request encoding.** Each dialect spells the declared capability and owns that spelling alone.
+   Messages emits `{"type":"web_search_20250305","name":"web_search"}`; Responses emits
+   `{"type":"web_search"}`. Chat Completions and GenerateContent cannot encode it, which is what
+   makes slice 1's validation a real gate rather than a formality. No request carries a hosted tool
+   the model did not declare.
+
+3. **Decode.** The Messages decoder accepts `server_tool_use` as a fifth content block and the
+   Responses decoder accepts a `web_search_call` output item, both carrying the action the provider
+   took: a query, an opened page, or a find within one. One semantic event covers both, because the
+   spike found the two dialects differ only in wrapper. Usage stops failing a step when a provider
+   reports non-zero hosted-tool counts, and accounts them instead.
+
+4. **Transcript.** The event reaches the workspace as a row naming what was searched or opened.
+   Findings are not part of this: neither dialect returns them, so the row says what the provider
+   did and the model's own answer says what it concluded. Three widths reviewed before the slice
+   closes.
+
+5. **Replay.** The blocks round-trip when the conversation continues, under PRV-3's existing
+   sidecar rules. The local route accepts a turn with them present or stripped, so the arm this
+   picks is a decision and not a constraint, and the test says which.
+
+6. **Corpus.** PRV-5's refusal and its rejected alternative are rewritten to what the code now
+   does. PRV-6 gains the declaration. The evidence table gains a row per invariant. The spike is
+   promoted where it now holds a decision, and the parts that were only reconnaissance are dropped.
+
+## Order and why
+
+Declaration precedes encoding because a spelling with nothing to spell cannot be tested. Encoding
+precedes decode because a fixture is cheaper to trust when the request that produced it is ours.
+Decode precedes the transcript because a row has nothing to render until an event exists, and the
+contract owns the row's shape rather than the adapter. Replay is last because it is the only slice
+that needs two turns, and because the arm it picks is informed by what the row had to show.
+
+## Open, to settle inside the stage
+
+- Does a provider-side row reuse the existing tool row with a marker naming the provider as the
+  actor, or is it a row of its own? Rendered frames decide this, not prose, and the contract owns
+  the answer.
+- Where does hosted-tool spend belong in the cost surface? It is provider-side work the owner did
+  not select a model for, and the usage counter names requests rather than tokens.
+
+## Deliberately not in this plan
+
+Running any search locally. A client tool that issues its own isolated model request, which is pi's
+shape and would need tools to reach a provider route. Hosted tools other than search: the local
+gateway refuses `web_fetch`, `code_interpreter` and `file_search` on both dialects, so a second tool
+has no route to be tested against. Recovering search findings, which neither dialect returns.
+Per-call approval, because the fence position already holds that configuring a provider authorises
+the call this rides on.

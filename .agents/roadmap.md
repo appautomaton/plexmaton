@@ -34,7 +34,7 @@ table in `AGENTS.md` allows.
 | 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | Closed 2026-09-03: delivered one live OpenAI-compatible agent, five bounded native tools with explicit approval and cancellation, and the reviewed responsive transcript grammar |
 | 02 | Canonical session state, persistence, durable permission policy, provider transports, context projection and project instructions | Closed 2026-09-12 by scoped evidence: delivered JSONL sessions and recovery, four provider dialects, compaction, durable permissions, AGENTS.md and conversation tree/rewind; unproven recovery/readmission acceptance inherited by Phase 03, independent export/import by Phase 04; MCP optional |
 | 03 | Durable multi-agent mailbox and runtime ownership | Closed 2026-09-16: delivered ordered durable delegation/mail, owned child scheduling, Stop and Handoff control, passive, process-kill and in-app switch recovery, canonical Attention and the accepted responsive agent workspace |
-| 04 | Product polish, performance hardening, math in production, and extensibility | Active; stages 1–9, 11–15, 17–27, 29, 31 and 32 complete; stage 16 effort selection awaits user testing; stage 28 model-switch degradation in progress; stage 30 automatic-compaction visibility unstarted; stage 10 branding remains |
+| 04 | Product polish, performance hardening, math in production, and extensibility | Active; stages 1–9, 11–15, 17–27, 29, 31 and 32 complete; stage 16 effort selection awaits user testing; stage 28 model-switch degradation in progress; stage 30 automatic-compaction visibility unstarted; stage 33 provider-side tools sliced; stage 10 branding remains |
 
 ## Locked
 
@@ -72,7 +72,7 @@ Tracks run beside phases because their exit conditions are comparisons, not deli
 | [Agent Skills spike](./spikes/agent-skills/README.md) | Compare skill discovery, project configuration and durable activation | Implemented and verified offline; live model behavior unverified |
 | [Permission policy spike](./spikes/permission-policy/README.md) | Compare scoped grants, rule precedence and durable authority | Source comparison retained; PER-1–PER-10 and PGR-1–PGR-5 implemented and verified locally |
 | [Compaction spike](./spikes/compaction/README.md) | Constrain compaction, branch-local context and recovery | Source/probe evidence retained; CPL-1–CPL-8 own implementation and regression evidence |
-| [Provider-side tools spike](./spikes/provider-side-tools/README.md) | Compare how harnesses surface a tool the provider runs, and measure one live hosted-search route | Comparison and live measurement retained; the design question is open |
+| [Provider-side tools spike](./spikes/provider-side-tools/README.md) | Compare how harnesses surface a tool the provider runs, and measure one live hosted-search route | Comparison and live measurement retained; the decision moved to [stage 33](./plans/phase-04-stage-33-provider-side-tools.md) |
 
 Gates without a track yet, each opened with a prototype, a comparison corpus, and a decision
 criterion:
