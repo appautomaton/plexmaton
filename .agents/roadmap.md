@@ -72,6 +72,7 @@ Tracks run beside phases because their exit conditions are comparisons, not deli
 | [Agent Skills spike](./spikes/agent-skills/README.md) | Compare skill discovery, project configuration and durable activation | Implemented and verified offline; live model behavior unverified |
 | [Permission policy spike](./spikes/permission-policy/README.md) | Compare scoped grants, rule precedence and durable authority | Source comparison retained; PER-1–PER-10 and PGR-1–PGR-5 implemented and verified locally |
 | [Compaction spike](./spikes/compaction/README.md) | Constrain compaction, branch-local context and recovery | Source/probe evidence retained; CPL-1–CPL-8 own implementation and regression evidence |
+| [Provider-side tools spike](./spikes/provider-side-tools/README.md) | Compare how harnesses surface a tool the provider runs, and measure one live hosted-search route | Comparison and live measurement retained; the design question is open |
 
 Gates without a track yet, each opened with a prototype, a comparison corpus, and a decision
 criterion:
