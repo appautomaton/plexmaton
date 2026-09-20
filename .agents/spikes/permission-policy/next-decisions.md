@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Read when | Proposing, judging or rejecting any change to how tool permission works |
-| Status | Position decided with the owner 2026-09-19; the confinement it calls for is unbuilt |
+| Status | Position decided with the owner 2026-09-19 and built: CMD-7 fences on macOS, PER-11 seeds the presets, and everything else is unconfined by decision. §What is still open holds the leftovers |
 | Basis | [Enforcement boundary](./enforcement-boundary.md) for what is true today; [sandbox-boundary](./sandbox-boundary.md) for the mechanism and its measurements; [the spike](./README.md) for the cross-harness comparison |
 
 Read this before writing code or dispatching investigation. It exists because a position agreed in

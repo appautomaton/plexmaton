@@ -60,8 +60,13 @@ cleanup. A later bounded supervisor may pool workers without changing this owner
 
 **CMD-7 — A launch is confined, or the result says it is not.** On macOS the shell is launched
 through a Seatbelt profile that denies writes outside a resolved root set — the admitted workspace
-root, the temporary directory, and the toolchain caches the owner's environment names — and leaves
-reads, network and process operations untouched. Stateless character devices are granted by name,
+root, both temporary directories, and the toolchain caches the owner's environment names — and
+leaves reads, network and process operations untouched. Both, because macOS answers `TMPDIR` with a
+per-user directory under `/private/var/folders` while `/tmp` is a separate system one, and a command
+hardcoding either reaches only the one it named. A relocating variable moves a cache rather than
+adding to it, and names the cache itself: `GOPATH` holds `src` beside `pkg/mod`, so granting its
+root would make every other Go project under it writable, which is source outside the admitted
+workspace and exactly what this denies. Stateless character devices are granted by name,
 because denying them confines nothing and instead stops ordinary programs from starting: `git`,
 `python` and `curl` all open `/dev/null` for themselves, and the inherited stdin CMD-2 supplies
 hides that from any test that only redirects into a file. The launcher applies the profile to itself and
@@ -72,6 +77,12 @@ Where no profile can be applied — off macOS, without the launcher, or inside a
 refuses nesting, which is probed once per process rather than per command — the spawn is byte
 -identical to an unconfined one and the typed result carries which case applied. The command itself
 is never inspected.
+
+A host that claims a fence proves it. Every test needing one steps aside where none exists, which
+is right for a developer inside an outer sandbox and would otherwise let a gate pass green with the
+whole mechanism unexercised, indistinguishable from one where it ran. The macOS gate therefore sets
+`PLEXMATON_FENCE_REQUIRED`, and where that is set an unavailable fence is a failure rather than a
+skip. Nothing else sets it, so nothing else is asserted.
 
 Rejected: matching commands for dangerous shapes, which any interpreter defeats under a different
 spelling and which cannot establish a command's effects in any case; and confining reads, which

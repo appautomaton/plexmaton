@@ -111,10 +111,15 @@ impl SessionPermissions {
 
     /// Starts the Session with commands already granted, for a bound the host supplies.
     ///
-    /// Not a `PermissionAction`, because this is not the owner's choice to make and un-make: the
-    /// fence either exists on this host or it does not, and where it does not the caller has no
-    /// matcher to pass. Revocation stays the ordinary one — the grant carries a `/permissions` row
-    /// like any other, and dies with the Session that seeded it.
+    /// Not a `PermissionAction`, because a generic enable carries no matcher: the fence either
+    /// exists on this host or it does not, and where it does not there is nothing to construct.
+    /// Revocation stays the ordinary one — the grant carries a `/permissions` row like any other —
+    /// so the owner can take it back and every command asks again.
+    ///
+    /// That is one-way within a process, and PER-11 says so: seeding happens here, at the Session's
+    /// start, and the silence returns at the next one. Rejected: a typed re-enable twin of
+    /// `EnableNativeFiles`, which buys a rarely-walked path back at the cost of a second control
+    /// and its confirmation copy; restarting is the boundary the Session already has.
     #[must_use]
     pub fn with_confined_commands(mut self, matcher: PermissionMatcher) -> Self {
         let expected = self.snapshot().revision().clone();

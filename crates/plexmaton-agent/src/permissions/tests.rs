@@ -302,6 +302,62 @@ fn per_3_file_change_preset_pins_definitions_and_covers_the_pinned_root() {
     assert!(!changed_definition.matches(&create("src/new.rs")));
 }
 
+/// PER-3: the confined-command preset is a pinned definition, not "anything that runs a command".
+///
+/// Its presence is the assertion that CMD-7 can fence one, so membership must be the identity the
+/// trusted catalog issued. A lookalike definition, a bumped revision, or another tool's subject
+/// each reaches the question the preset was never offered for.
+#[test]
+fn per_3_confined_command_preset_pins_the_command_definition() {
+    let command = CommandPermission::new("cargo build".into(), [7; 32]).expect("command");
+    let subject = PermissionSubject::Command {
+        command,
+        syntax: CommandSyntax::ExactOnly(PrefixUnavailable::UnsupportedSyntax),
+    };
+    let call = admitted("shell", subject.clone());
+    let mut session = state("coding");
+    remember(
+        &mut session,
+        PermissionMatcher::ConfinedCommands {
+            definition: definition("shell"),
+        },
+        &call,
+    )
+    .expect("seeded preset");
+    assert_eq!(decision(&session, &call), PolicyDecision::Allow);
+    // A different source under the same definition still runs: the fence is the bound, not the
+    // command text, which CMD-7 never inspects.
+    let other_source = admitted(
+        "shell",
+        PermissionSubject::Command {
+            command: CommandPermission::new("rm -rf target".into(), [9; 32]).expect("command"),
+            syntax: CommandSyntax::ExactOnly(PrefixUnavailable::UnsupportedSyntax),
+        },
+    );
+    assert_eq!(decision(&session, &other_source), PolicyDecision::Allow);
+    // Identity is what membership turns on.
+    assert_eq!(
+        decision(&session, &admitted("shell-lookalike", subject.clone())),
+        PolicyDecision::RequireApproval,
+        "a similar definition id is not a member"
+    );
+    let bumped = PermissionDefinition::new(
+        ToolDefinitionId::new("shell").expect("id"),
+        ToolDefinitionRevision::new(2).expect("revision"),
+    );
+    assert!(!bumped.matches(&call), "a bumped revision is not a member");
+    assert_eq!(
+        decision(&session, &admitted("shell", PermissionSubject::Opaque)),
+        PolicyDecision::RequireApproval,
+        "the preset names command subjects, not every call the tool makes"
+    );
+    assert_eq!(
+        decision(&session, &create("src/new.rs")),
+        PolicyDecision::RequireApproval,
+        "a file change is a different preset's business"
+    );
+}
+
 #[test]
 fn per_3_inspection_preset_pins_only_read_and_search_definitions() {
     let read = admitted_with(
@@ -472,10 +528,14 @@ fn per_6_project_observations_invalidate_offers_and_unavailable_sources_never_al
         .observe_project(project.clone())
         .expect("unchanged observation");
     assert_eq!(session.snapshot(), current);
+    let offer = current.remember_offer(&call).expect("offer");
     assert_eq!(
-        current.remember_offer(&call).expect("offer").display.scopes,
+        offer.display.scopes,
         plexmaton_core::PermissionScopes::SessionAndProject
     );
+    // PER-10: the card names the grant it will apply. Read off the matcher rather than restated,
+    // so a scope change cannot leave the card promising the previous one.
+    assert_eq!(offer.display.label, preset().label());
     let mut exhausted = project;
     if let ProjectPermissions::Ready { can_remember, .. } = &mut exhausted {
         *can_remember = false;

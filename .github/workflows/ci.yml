@@ -57,7 +57,12 @@ jobs:
       # Keep this job ID and target cache together so existing main caches remain reusable.
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # This runner is macOS, so CMD-7 claims it fences. Without the variable every fence test
+      # steps aside on a host that cannot, and a runner refusing nested profiles would take the
+      # whole confinement story with it behind a green run.
       - run: cargo test --workspace --locked
+        env:
+          PLEXMATON_FENCE_REQUIRED: "1"
       - run: python3 scripts/smoke-tui.py
       - run: python3 scripts/smoke-statusline.py
       - run: python3 scripts/smoke-permissions.py

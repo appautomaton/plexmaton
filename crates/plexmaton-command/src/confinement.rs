@@ -26,27 +26,50 @@ const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 /// kernel as an argv element, which removes every quoting and escaping question at once.
 const ROOT_PARAMETER_PREFIX: &str = "ROOT";
 
-/// Cache and toolchain directories a real build writes to outside the workspace, tried in order
-/// beneath the owner's `HOME`. A directory that does not exist is skipped rather than granted:
-/// granting an absent path is the silent failure this module exists to avoid.
-const TOOLCHAIN_CACHE_RELATIVE: &[&str] = &[
-    ".cargo",
-    ".rustup",
-    ".cache",
-    ".npm",
-    "go/pkg/mod",
-    ".local/share/uv",
-];
+/// One cache a real build writes to outside the workspace: where it lives beneath the owner's
+/// `HOME`, and the environment variables that move it elsewhere.
+struct ToolchainCache {
+    /// Where this cache lives when nothing relocates it.
+    home_relative: &'static str,
+    /// Variables that relocate it, each with the tail that reaches the cache inside the value.
+    relocated_by: &'static [(&'static str, &'static str)],
+}
 
-/// Environment variables that relocate one of those caches. When set, they win over the default.
-const TOOLCHAIN_CACHE_ENVIRONMENT: &[&str] = &[
-    "CARGO_HOME",
-    "RUSTUP_HOME",
-    "XDG_CACHE_HOME",
-    "GOMODCACHE",
-    "GOPATH",
-    "UV_CACHE_DIR",
-    "npm_config_cache",
+/// The caches CMD-7 grants. A directory that does not exist is skipped rather than granted:
+/// granting an absent path is the silent failure this module exists to avoid.
+///
+/// A set variable *replaces* its default rather than joining it. A relocated cache means the
+/// default is not the one in use, so granting both would widen the zone past the caches this
+/// names — a fence is only as narrow as the roots it hands the kernel.
+///
+/// `GOPATH` reaches its cache through `pkg/mod` on purpose. It names a workspace, holding `src`,
+/// `bin` and `pkg`, so granting its root would make every Go project under it writable. That is
+/// source, and source outside the admitted workspace is exactly what the fence exists to deny.
+const TOOLCHAIN_CACHES: &[ToolchainCache] = &[
+    ToolchainCache {
+        home_relative: ".cargo",
+        relocated_by: &[("CARGO_HOME", "")],
+    },
+    ToolchainCache {
+        home_relative: ".rustup",
+        relocated_by: &[("RUSTUP_HOME", "")],
+    },
+    ToolchainCache {
+        home_relative: ".cache",
+        relocated_by: &[("XDG_CACHE_HOME", "")],
+    },
+    ToolchainCache {
+        home_relative: ".npm",
+        relocated_by: &[("npm_config_cache", "")],
+    },
+    ToolchainCache {
+        home_relative: "go/pkg/mod",
+        relocated_by: &[("GOMODCACHE", ""), ("GOPATH", "pkg/mod")],
+    },
+    ToolchainCache {
+        home_relative: ".local/share/uv",
+        relocated_by: &[("UV_CACHE_DIR", "")],
+    },
 ];
 
 /// Why a command ran with the owner's full filesystem authority.
@@ -189,21 +212,39 @@ fn profile(root_count: usize) -> String {
     profile
 }
 
-/// The workspace, the temporary directory, and the toolchain caches a build reaches — each resolved,
-/// deduplicated, and dropped when it does not exist.
+/// The workspace, both temporary directories, and the toolchain caches a build reaches — each
+/// resolved, deduplicated, and dropped when it does not exist.
 fn resolved_write_roots(workspace_root: &Path) -> Vec<PathBuf> {
-    let mut candidates = vec![workspace_root.to_path_buf(), std::env::temp_dir()];
-    for key in TOOLCHAIN_CACHE_ENVIRONMENT {
-        if let Some(value) = std::env::var_os(key) {
+    // macOS has two scratch directories and a command may write to either. `temp_dir` answers with
+    // the per-user one `TMPDIR` names, under `/private/var/folders`; `/tmp` is the system one, and
+    // a command that hardcodes it — which shell one-liners and build scripts routinely do — reaches
+    // neither the other nor any granted root. Elsewhere the two are the same path and dedup drops
+    // one.
+    let mut candidates = vec![
+        workspace_root.to_path_buf(),
+        std::env::temp_dir(),
+        PathBuf::from("/tmp"),
+    ];
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    for cache in TOOLCHAIN_CACHES {
+        let mut relocated = false;
+        for (variable, tail) in cache.relocated_by {
+            let Some(value) = std::env::var_os(variable) else {
+                continue;
+            };
             let path = PathBuf::from(value);
             if path.is_absolute() {
-                candidates.push(path);
+                candidates.push(if tail.is_empty() {
+                    path
+                } else {
+                    path.join(tail)
+                });
+                relocated = true;
             }
         }
-    }
-    if let Some(home) = std::env::var_os("HOME") {
-        let home = PathBuf::from(home);
-        candidates.extend(TOOLCHAIN_CACHE_RELATIVE.iter().map(|tail| home.join(tail)));
+        if let (false, Some(home)) = (relocated, home.as_ref()) {
+            candidates.push(home.join(cache.home_relative));
+        }
     }
 
     let mut roots: Vec<PathBuf> = Vec::with_capacity(candidates.len());
@@ -330,21 +371,87 @@ mod tests {
         // Paths reach the kernel as argv elements, so nothing here quotes or escapes. This pins
         // that a path containing `=` still binds whole.
         let confinement = Confinement::resolve(&std::env::temp_dir(), SHELL);
-        if let Confinement::Enforced { prefix, roots } = confinement {
-            let bindings: Vec<_> = prefix
-                .iter()
-                .filter(|argument| {
-                    argument
-                        .to_string_lossy()
-                        .starts_with(ROOT_PARAMETER_PREFIX)
-                })
-                .collect();
-            assert_eq!(bindings.len(), roots.len());
-            for (index, root) in roots.iter().enumerate() {
-                let mut expected = OsString::from(format!("{ROOT_PARAMETER_PREFIX}{index}="));
-                expected.push(root);
-                assert_eq!(*bindings[index], expected);
-            }
+        // Both arms assert. A bare `if let` is a green no-op on a host that cannot fence, and this
+        // test is cited as CMD-7 evidence: silence there would read as a passing binding claim.
+        let Confinement::Enforced { prefix, roots } = confinement else {
+            let (program, _) = confinement.launch(SHELL);
+            assert_eq!(
+                program,
+                OsStr::new(SHELL),
+                "an unfenced launch binds nothing"
+            );
+            return;
+        };
+        let bindings: Vec<_> = prefix
+            .iter()
+            .filter(|argument| {
+                argument
+                    .to_string_lossy()
+                    .starts_with(ROOT_PARAMETER_PREFIX)
+            })
+            .collect();
+        assert_eq!(bindings.len(), roots.len());
+        for (index, root) in roots.iter().enumerate() {
+            let mut expected = OsString::from(format!("{ROOT_PARAMETER_PREFIX}{index}="));
+            expected.push(root);
+            assert_eq!(*bindings[index], expected);
+        }
+    }
+
+    #[test]
+    fn a_host_told_to_fence_can() {
+        // CMD-7's platform claim is only checkable where it is made. Every other fence test steps
+        // aside when this host has none, which is right for a developer inside an outer sandbox and
+        // wrong for the gate: there, stepping aside would let the whole confinement story go
+        // unexercised behind a green run, and nobody could see which of the two reasons it passed
+        // for. The macOS gate sets this variable; nothing else does, so nothing else is asserted.
+        if std::env::var_os("PLEXMATON_FENCE_REQUIRED").is_none() {
+            return;
+        }
+        assert_eq!(
+            Confinement::unavailable(),
+            None,
+            "this host was told it fences and cannot"
+        );
+    }
+
+    #[test]
+    fn both_temporary_directories_are_granted() {
+        // CMD-7: macOS answers `temp_dir` with the per-user directory under `/private/var/folders`,
+        // so a command hardcoding `/tmp` reached no granted root and its write failed with a denial
+        // nothing in the profile explained.
+        let roots = resolved_write_roots(&std::env::temp_dir());
+        for scratch in [std::env::temp_dir(), PathBuf::from("/tmp")] {
+            let resolved = std::fs::canonicalize(&scratch).expect("a scratch directory resolves");
+            assert!(
+                roots.iter().any(|root| resolved.starts_with(root)),
+                "{} reaches no granted root: {roots:?}",
+                resolved.display()
+            );
+        }
+    }
+
+    #[test]
+    fn a_relocated_cache_replaces_its_default_and_never_grants_a_workspace() {
+        // CMD-7 names caches. GOPATH names a workspace holding `src`, so granting its root would
+        // make every other Go project under it writable; its cache is the `pkg/mod` beneath it.
+        // A relocated cache also replaces its default rather than joining it, or a set variable
+        // would widen the zone instead of moving it.
+        let gopath = TOOLCHAIN_CACHES
+            .iter()
+            .find(|cache| cache.home_relative == "go/pkg/mod")
+            .expect("the Go module cache is granted");
+        assert_eq!(
+            gopath.relocated_by,
+            &[("GOMODCACHE", ""), ("GOPATH", "pkg/mod")],
+            "GOPATH must reach the cache, never bind as its own root"
+        );
+        for cache in TOOLCHAIN_CACHES {
+            assert!(
+                !cache.relocated_by.is_empty(),
+                "{} has no relocation, so its default can never be replaced",
+                cache.home_relative
+            );
         }
     }
 }

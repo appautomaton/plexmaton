@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Read when | Scoping command containment, or choosing its mechanism |
-| Status | Mechanism chosen and measured on macOS: cost, cancellation and failure modes. Production containment unbuilt |
+| Status | Mechanism chosen and measured on macOS: cost, cancellation and failure modes. Built as [command-tool](../../specs/command-tool.md) CMD-7; this file keeps the measurements behind it |
 | Corpus | Local revisions pinned in [the spike](./README.md); OS documentation checked 2026-09-05; probes re-run 2026-09-19 |
 
 [Next decisions](./next-decisions.md) owns the position this serves. In short: the shell is the one

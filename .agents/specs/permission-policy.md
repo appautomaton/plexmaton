@@ -42,9 +42,11 @@ bounds does not need the question the bound replaces: an edit reaches only what
 [workspace-files](./workspace-files.md) WFS-1 and [workspace-mutation](./workspace-mutation.md)
 MUT-2 pin, and a command reaches only what CMD-7 fences. Both are ordinary Session grants — a
 `/permissions` row, revocable, gone with the process — so revoking one restores its question, and
-nothing is granted that PER-2's precedence cannot still refuse. What keeps asking is what no bound
-covers: a command on a host with no fence, and every explicit Deny or Ask rule, which PER-2
-consults before any grant.
+nothing is granted that PER-2's precedence cannot still refuse. Seeding happens once, when the
+Session starts: the file-change preset has a typed setting that turns it back on, while revoking
+the confined-command preset holds for the life of the process and its silence returns at the next
+one. What keeps asking is what no bound covers: a command on a host with no fence, and every
+explicit Deny or Ask rule, which PER-2 consults before any grant.
 
 Rejected: dropping `FileWrite` and `ProcessSpawn` from the policy's fallback instead. It reaches
 the same silence and loses what makes it answerable — a fallback has no `/permissions` row, so it

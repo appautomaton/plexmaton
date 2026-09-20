@@ -231,14 +231,16 @@ impl PermissionSnapshot {
         let (matcher, label, note) = match call.permission_subject() {
             PermissionSubject::NativeFileChange(_) => {
                 let (create, edit) = self.native_files.as_ref()?;
-                (
-                    PermissionMatcher::NativeFileChanges {
-                        create: create.clone(),
-                        edit: edit.clone(),
-                    },
-                    "native create/edit; no controls/Git".to_owned(),
-                    None,
-                )
+                let matcher = PermissionMatcher::NativeFileChanges {
+                    create: create.clone(),
+                    edit: edit.clone(),
+                };
+                // The card reads its scope off the matcher it will apply. A second copy of that
+                // sentence is how a card comes to promise a narrower grant than the one it
+                // installs, which is the reading PER-10 exists to prevent — and nobody has to
+                // edit the card for it to happen.
+                let label = matcher.label();
+                (matcher, label, None)
             }
             PermissionSubject::Command { command, syntax } => {
                 let definition = PermissionDefinition::new(

@@ -1200,10 +1200,10 @@ mod tests {
         let resolved_root = std::fs::canonicalize(&workspace.0).expect("workspace resolves");
         assert!(roots.contains(&resolved_root), "workspace must be granted");
 
-        // A command that opens a character device for itself. The executor supplies stdin from
-        // the parent, so an inherited descriptor hides this: the first fence shipped here denied
-        // `/dev/null` and stopped git, python and curl from starting, while every test that only
-        // redirected into a file still passed.
+        // A command that opens a character device for itself, which is what a denied `/dev/null`
+        // breaks: git, python and curl each open one and fail to start. CMD-2 supplies stdin from
+        // the parent, so an inherited descriptor satisfies any fixture that only redirects into a
+        // file — this one must open its own, or the regression passes unseen.
         let devices = tool
             .execute(
                 &admitted(
