@@ -32,6 +32,9 @@ WHITESPACE = re.compile(r"\s+")
 # by cursor controls. Readiness includes this boundary, not a partial matching caption.
 FRAME_END = re.compile(rb"\x1b\[0m(?:\x1b\[(?:\?[0-9;]+[hl]|[0-9;]+H))*$")
 UP, DOWN, ENTER, ESC = b"\x1b[A", b"\x1b[B", b"\r", b"\x1b"
+# The `/permissions` row PER-11 seeds where CMD-7 reports it can fence a command. Short enough to
+# survive the narrowest journey width: the full scope wraps, and a wrapped marker never matches.
+SEEDED_COMMANDS = "Revoke Session: Commands"
 
 
 def _read(master, sink, limit):
@@ -340,6 +343,28 @@ class Terminal:
         click(self.master, at, self.capture, cursor=True)
         os.write(self.master, sgr_press(*at)[:-1] + b"m")
         return self.send(message.encode() + ENTER, *markers, absent=absent)
+
+    def restore_command_approvals(self):
+        """Take PER-11's seeded confined-command grant back, so a command asks again.
+
+        A coding Session starts holding that grant wherever CMD-7 can fence a command, which is
+        what makes routine work quiet. A journey whose subject is the approval itself revokes the
+        row first: the question returns because the bound that replaced it is gone, which is the
+        same route the owner has. Where no fence exists the grant was never seeded and the
+        question is already there, so this changes nothing and the journey reads the same on
+        every host.
+
+        Rejected: a flag that skips seeding for tests. An invisible default cannot be revoked
+        from `/permissions`, so a journey using one would prove a path the owner does not have.
+        """
+        screen = self.prompt("/permissions", "Session permissions", "Session grants last until")
+        if SEEDED_COMMANDS in screen:
+            self.send(DOWN, f"> {SEEDED_COMMANDS}")
+            self.send(ENTER, "Revoke this permission?", "> Back")
+            self.send(UP, "> Revoke permission")
+            self.send(ENTER, "Permission updated", absent=(SEEDED_COMMANDS,))
+        self.send(ESC, "Message Plexmaton", absent=("Enter review",))
+        return self.send(b"\x15", "Message Plexmaton", absent=("/permissions",))
 
     def quit(self):
         self.send(b"\x04", "press Ctrl-D again to quit")

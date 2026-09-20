@@ -73,6 +73,9 @@ output_reserve_tokens = 4096
             assert not list((home / "sessions").glob("*.jsonl")), "opening an empty tree wrote history"
             requests(provider, 0)
             terminal.send(ESC, "Message Plexmaton", absent=("Conversation tree",))
+            # This journey's subject is that a rewound turn does not repeat a command's effect,
+            # so the command must be one the user admitted once.
+            terminal.restore_command_approvals()
             terminal.prompt(FIRST, "Approval required", EFFECT)
             terminal.send(b"1", "FIRST_DONE", absent=("Approval required",))
             assert effect.read_text() == "x"
