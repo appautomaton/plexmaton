@@ -197,19 +197,16 @@ impl ViewState {
                 label,
                 status,
                 presentation,
-            } => {
-                self.validate_entry_owner(&agent_id, &item_id)?;
-                let changed = self.agent_mut(&agent_id)?.set_tool_entry(
-                    item_id.clone(),
-                    item_revision,
-                    call_id,
-                    label,
-                    status,
-                    presentation,
-                )?;
-                self.remember_entry_owner(item_id, agent_id);
-                changed
-            }
+            } => self.apply_entry(agent_id, item_id, |agent, item_id| {
+                agent.set_tool_entry(item_id, item_revision, call_id, label, status, presentation)
+            })?,
+            ConversationEvent::ServerToolCalled {
+                agent_id,
+                item_id,
+                call,
+            } => self.apply_entry(agent_id, item_id, |agent, item_id| {
+                agent.note_server_tool(item_id, call)
+            })?,
             ConversationEvent::AttentionRequested {
                 agent_id,
                 attention_id,
@@ -402,6 +399,20 @@ impl ViewState {
         Ok(changed)
     }
 
+    /// One entry-bearing fact, in the shape every kind shares: the entry belongs to the agent, the
+    /// agent's projection files it, and the owner is remembered for the revisions to come.
+    fn apply_entry(
+        &mut self,
+        agent_id: AgentId,
+        item_id: TranscriptItemId,
+        file: impl FnOnce(&mut AgentView, TranscriptItemId) -> Result<bool, ReduceError>,
+    ) -> Result<bool, ReduceError> {
+        self.validate_entry_owner(&agent_id, &item_id)?;
+        let changed = file(self.agent_mut(&agent_id)?, item_id.clone())?;
+        self.remember_entry_owner(item_id, agent_id);
+        Ok(changed)
+    }
+
     fn apply_artifact(
         &mut self,
         agent_id: AgentId,
@@ -524,6 +535,55 @@ mod tests {
         }
     }
 
+    fn server_tool_event(agent: &AgentId, entry: &str, queries: &[&str]) -> ConversationEvent {
+        ConversationEvent::ServerToolCalled {
+            agent_id: agent.clone(),
+            item_id: item_id(entry),
+            call: plexmaton_core::ServerToolCall {
+                tool: plexmaton_core::ServerTool::WebSearch,
+                action: plexmaton_core::ServerToolAction::Search {
+                    queries: queries.iter().map(|query| (*query).to_owned()).collect(),
+                },
+                status: plexmaton_core::ServerToolStatus::Completed,
+            },
+        }
+    }
+
+    /// ENT-2: a call the provider ran appears once, finished, and a second report of the same entry
+    /// is a duplicate the notice log keeps, never an update to the row.
+    #[test]
+    fn a_server_tool_call_appears_finished_and_never_transitions() {
+        let mut state = ViewState::default();
+        let agent = agent_id("agent-a");
+        state.apply(envelope(1, created("agent-a")));
+        assert_eq!(
+            state.apply(envelope(2, server_tool_event(&agent, "search", &["rust"]))),
+            ApplyOutcome::Accepted
+        );
+        let outcome = state.apply(envelope(3, server_tool_event(&agent, "search", &["again"])));
+        assert!(
+            matches!(
+                outcome,
+                ApplyOutcome::Rejected(ReduceError::DuplicateTranscriptItem(ref item)) if item == &item_id("search")
+            ),
+            "{outcome:?}"
+        );
+        let entries: Vec<_> = state
+            .primary_agent()
+            .unwrap_or_else(|| panic!("agent was projected"))
+            .entries()
+            .collect();
+        assert!(
+            matches!(
+                entries.as_slice(),
+                [TranscriptEntryView::ServerTool(view)]
+                    if view.revision == 0
+                        && view.call.action == plexmaton_core::ServerToolAction::Search { queries: vec!["rust".to_owned()] }
+            ),
+            "{entries:?}"
+        );
+    }
+
     #[test]
     fn every_step_of_the_canonical_scenario_is_accepted() {
         // The shared fixture ignores the outcome so a degraded projection is still constructible.
@@ -624,11 +684,12 @@ mod tests {
         state.apply(envelope(
             8,
             ConversationEvent::RuntimeError {
-                agent_id: agent,
+                agent_id: agent.clone(),
                 item_id: item_id("error"),
                 message: "failed".to_owned(),
             },
         ));
+        state.apply(envelope(9, server_tool_event(&agent, "search", &["rust"])));
 
         let entries: Vec<_> = state
             .primary_agent()
@@ -641,6 +702,7 @@ mod tests {
                     TranscriptTextKind::Error => "error",
                 },
                 TranscriptEntryView::Tool(_) => "tool",
+                TranscriptEntryView::ServerTool(_) => "server_tool",
                 TranscriptEntryView::Artifact(_) => "artifact",
                 TranscriptEntryView::Mail(_) => "mail",
                 TranscriptEntryView::Task(_) => "task",
@@ -649,7 +711,15 @@ mod tests {
             .collect();
         assert_eq!(
             entries,
-            ["text", "tool", "artifact", "mail", "warning", "error"]
+            [
+                "text",
+                "tool",
+                "artifact",
+                "mail",
+                "warning",
+                "error",
+                "server_tool"
+            ]
         );
         assert_eq!(
             state.notices().count(),

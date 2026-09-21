@@ -262,6 +262,7 @@ fn server_tool_calls_share_the_tool_argument_bound() {
             action: ServerToolAction::Search {
                 queries: vec!["q".repeat(bytes)],
             },
+            status: plexmaton_core::ServerToolStatus::Completed,
         },
     };
     assert!(

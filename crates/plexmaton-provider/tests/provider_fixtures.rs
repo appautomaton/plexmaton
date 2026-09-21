@@ -967,6 +967,10 @@ async fn prv_5_responses_web_search_call_is_carried_as_a_server_tool_call() {
     assert_eq!(calls[0].0, 1);
     assert_eq!(calls[0].1.tool, ServerTool::WebSearch);
     assert_eq!(
+        calls[0].1.status,
+        plexmaton_core::ServerToolStatus::Completed
+    );
+    assert_eq!(
         calls[0].1.action,
         ServerToolAction::Search {
             queries: vec!["latest stable Rust release".to_owned()]

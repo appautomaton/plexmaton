@@ -107,7 +107,9 @@ impl Agent {
             }
             ModelEvent::ServerToolCall { position, call } => {
                 let result = match &mut self.turn {
-                    Turn::Streaming { step, .. } => step.note_server_tool(position, call),
+                    Turn::Streaming { step, .. } => {
+                        step.note_server_tool(&mut self.record, reaction, position, call)
+                    }
                     Turn::Idle | Turn::Working { .. } => return,
                 };
                 if let Err(error) = result {

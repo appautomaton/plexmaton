@@ -1,7 +1,7 @@
 //! Completed message metadata, kept separately from authoritative semantic text.
 
 use plexmaton_agent::{ModelEvent, ProviderReplay};
-use plexmaton_core::{ServerTool, ServerToolAction, ServerToolCall};
+use plexmaton_core::{ServerTool, ServerToolAction, ServerToolCall, ServerToolStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -20,8 +20,10 @@ pub(super) enum MessagePhase {
 #[serde(rename_all = "snake_case")]
 pub(super) enum ItemStatus {
     InProgress,
+    Searching,
     Completed,
     Incomplete,
+    Failed,
 }
 
 fn item_status(item: &Value) -> Result<Option<ItemStatus>, DecodeError> {
@@ -170,9 +172,26 @@ impl ResponsesDecoder {
             action.text_bytes(),
             self.limits.max_retained_output_bytes,
         )?;
+        // PRV-5: how the call ended is typed here, because the row that shows it says so in
+        // colour. A done item that still claims to be running is a wire defect, not a state.
+        let status = match item_status(item)? {
+            None | Some(ItemStatus::Completed) => ServerToolStatus::Completed,
+            Some(ItemStatus::Failed | ItemStatus::Incomplete) => ServerToolStatus::Failed,
+            Some(ItemStatus::InProgress) => {
+                return Err(DecodeError::UnsupportedEvent(
+                    "web_search_call.status:in_progress".to_owned(),
+                ));
+            }
+            Some(ItemStatus::Searching) => {
+                return Err(DecodeError::UnsupportedEvent(
+                    "web_search_call.status:searching".to_owned(),
+                ));
+            }
+        };
         let call = ServerToolCall {
             tool: ServerTool::WebSearch,
             action,
+            status,
         };
         let metadata = ResponseReplay::WebSearchCall {
             id: item.get("id").and_then(Value::as_str).map(str::to_owned),

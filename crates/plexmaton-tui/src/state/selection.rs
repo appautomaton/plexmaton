@@ -327,6 +327,8 @@ fn entry_source(entry: &TranscriptEntryView) -> Option<String> {
     match entry {
         TranscriptEntryView::Text(item) => Some(item.source.clone()),
         TranscriptEntryView::Tool(tool) => tool_source(&tool.presentation),
+        // The same lines disclosure shows: what the route reported, and nothing it did not.
+        TranscriptEntryView::ServerTool(view) => view.action_source(),
         // The pointer, not the human label: the pointer is the stable artifact value (SEL-2).
         TranscriptEntryView::Artifact(artifact) => Some(artifact.pointer.clone()),
         // The opposite endpoint's display label travels with the addressed body (ENT-1).
@@ -431,6 +433,49 @@ mod tests {
         assert_eq!(copied, format!("{invocation}\n{outcome}"));
         assert!(!copied.contains("invocation:"));
         assert!(!copied.contains("outcome:"));
+    }
+
+    /// ENT-4 and SEL-2: a server tool's copy is what the route reported, one fact per line, the
+    /// same lines disclosure shows; a search reported without a query has no source to copy.
+    #[test]
+    fn server_tool_copy_is_what_the_route_reported() {
+        use super::TranscriptEntryView;
+        use plexmaton_core::{ServerTool, ServerToolAction, ServerToolCall, ServerToolStatus};
+        let view = |action| crate::ServerToolView {
+            entry_id: TranscriptItemId::new("search")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            call: ServerToolCall {
+                tool: ServerTool::WebSearch,
+                action,
+                status: ServerToolStatus::Completed,
+            },
+            revision: 0,
+        };
+        assert_eq!(
+            super::entry_source(&TranscriptEntryView::ServerTool(view(
+                ServerToolAction::Search {
+                    queries: vec!["a".to_owned(), "b".to_owned()],
+                }
+            ))),
+            Some("query: a\nquery: b".to_owned())
+        );
+        assert_eq!(
+            super::entry_source(&TranscriptEntryView::ServerTool(view(
+                ServerToolAction::FindInPage {
+                    url: "releases.rs".to_owned(),
+                    pattern: "1.98".to_owned(),
+                }
+            ))),
+            Some("url: releases.rs\npattern: 1.98".to_owned())
+        );
+        assert_eq!(
+            super::entry_source(&TranscriptEntryView::ServerTool(view(
+                ServerToolAction::Search {
+                    queries: Vec::new(),
+                }
+            ))),
+            None
+        );
     }
 
     /// ENT-4: copying a whole tool entry retains cwd and timeout; only modal copy extracts shell source.

@@ -15,6 +15,29 @@ pub enum ServerTool {
     WebSearch,
 }
 
+impl ServerTool {
+    /// The one spelling this tool has: what configuration declares and the transcript shows.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::WebSearch => "web_search",
+        }
+    }
+}
+
+/// How a server tool call ended, as the provider reported it.
+///
+/// A call reaches the record only after it has ended: the provider ran it inside the model call
+/// and reports the result, so there is no queued or running state here for anything to project.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ServerToolStatus {
+    /// The provider finished the call and the model went on with what it found.
+    Completed,
+    /// The provider gave the call up and the model went on without its result.
+    Failed,
+}
+
 /// What a server tool did, as the provider reported it.
 ///
 /// Findings are not here: a route returns them or it does not, and a transcript shows what
@@ -69,11 +92,24 @@ pub struct ServerToolCall {
     pub tool: ServerTool,
     /// What it did with it.
     pub action: ServerToolAction,
+    /// How it ended.
+    pub status: ServerToolStatus,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ServerToolAction;
+    use super::{ServerTool, ServerToolAction};
+
+    /// PRV-6: the name configuration declares is the name the record and the screen use.
+    #[test]
+    fn the_tool_name_is_its_configuration_spelling() {
+        let declared = serde_json::to_value(ServerTool::WebSearch)
+            .unwrap_or_else(|error| panic!("serialize: {error}"));
+        assert_eq!(
+            declared,
+            serde_json::Value::from(ServerTool::WebSearch.name())
+        );
+    }
 
     #[test]
     fn action_text_bytes_count_every_provider_authored_string() {

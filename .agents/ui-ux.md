@@ -61,6 +61,7 @@ These terms are used identically in product copy, architecture, code, and tests.
 | Composer menu | The popup above the composer: Skills for `$`, Commands for `/`. The draft is its query |
 | Drawer | The workspace's own surface, pulled from the top edge by `Ctrl-P`. Its title, `Workspace`, is the addressee; it holds what outlives the process, as pages, never Commands |
 | Page | A view inside the Drawer: Configuration, Permissions, opened in place |
+| Server tool | A tool the provider runs on its own side inside one model call, declared per model in configuration. It is reported once it has ended; nothing here queues, admits or dispatches it |
 
 An alias such as `B` or `reviewer` is a display label, never durable identity. A pane is a layout
 presentation, not a Conversation. A widget is a Rust rendering component, not a synonym for an entry
@@ -255,8 +256,8 @@ terminals with the fewest rows.
   finds the one row that needs them without reading the rest. Rejected: restrained colour with
   hierarchy carried by spacing alone, which made every row look equally important and left
   nothing to navigate by.
-- Agent, mail, tool, reasoning, artifact, warning, and error content are distinguishable by
-  colour, and carry a marker or name as well where that marker forms a scannable column.
+- Agent, mail, tool, server tool, reasoning, artifact, warning, and error content are
+  distinguishable by colour, and carry a marker or name as well where that marker forms a scannable column.
   Rejected: requiring every distinction to survive without colour, which capped the design at
   what a colourless terminal could express.
 - Explicit plaintext reasoning is named and visually quiet; system text is named and muted;
@@ -269,7 +270,7 @@ terminals with the fewest rows.
   selection treatment without erasing those roles; unknown diff text remains undecorated source.
 - Typeset math is the primary presentation; source is an interaction layer for inspect and copy, and
   a clear failure representation.
-- Workspace colour is sixteen semantic roles; widgets name a role, never a terminal colour, and
+- Workspace colour is seventeen semantic roles; widgets name a role, never a terminal colour, and
   a palette is a complete assignment of them. Colour says what a thing is and weight says what
   reads first; the row `Enter` acts on carries both (`Chosen`), and what stays quiet is a
   low-saturation hue with no weight on it. Document italic is a separate vocabulary with its own
@@ -278,7 +279,7 @@ terminals with the fewest rows.
 - **A palette is data, and colour is two layers.** Below, twelve slots named the way a terminal
   names them: a ground ramp — `ground`, `line`, `muted`, `text` — and eight hues around a closed
   wheel — `red`, `orange`, `yellow`, `green`, `cyan`, `blue`, `purple`, `magenta`. A theme assigns
-  those twelve and nothing else. Above, the sixteen roles map onto slots and carry their weight;
+  those twelve and nothing else. Above, the seventeen roles map onto slots and carry their weight;
   that mapping is the product's, so no theme can make a failure read as a success.
 - A surface holding a conversation, or the roster of them, carries its own hue on its border:
   muted for the roster, blue for the user's own, cyan for a delegate's. Focus is that hue at full
@@ -512,6 +513,14 @@ full of concurrent agents stays navigable:
 - Reasoning summary, named `reasoning` and visually quiet
 - Tool call: `[ ] queued`, `[~] running`, `[?] approval required`, `[+] succeeded`, `[!] failed`,
   `[x] denied`, or `[-] cancelled`; retained invocation and outcome disclose beneath the same row
+- Server tool call: the tool row's grammar, with the tool's name after the marker and what the
+  route reported after the `·`: the query, `opened` and the page, or the pattern and the page it
+  was sought `in`, and nothing further; a search reported without a query is the name alone. The
+  marker wears the server-tool colour when the call ended well and failure's when it did not. It
+  appears finished and never transitions. What the route reported discloses beneath the row. The
+  user chose the grammar and its colour from rendered candidates on 2026-09-21. Rejected: a row
+  family of its own, which gave up the marker column and the disclosure tools already have; the
+  plain succeeded colour, which read as a tool run inside the fence
 - Diff with original `+`/`-` markers, and artifact
 - Agent mail, and Main-authored task updates, each entering both conversations it names and saying
   in a word which side its row is: `sent to`, `received from`, `assigned to`, `assigned by`, naming

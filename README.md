@@ -16,7 +16,7 @@ Plexmaton is App Automaton's Rust AI coding assistant for the terminal. Choose a
 ## Why Plexmaton?
 
 - **Keep the work in view.** Streaming answers, tool activity and approvals share a responsive workspace with expandable details.
-- **Choose your models.** Use OpenAI Responses or Chat Completions, both exercised daily. The Anthropic Messages and Gemini adapters are implemented and fixture-tested, not yet run against a live endpoint.
+- **Choose your models.** Use OpenAI Responses or Chat Completions, both exercised daily. The Anthropic Messages and Gemini adapters are implemented and fixture-tested, not yet run against a live endpoint. A model may declare the provider's own web search, and the transcript shows each search the provider ran, in its own colour.
 - **Stay in control.** Approve an action once, remember a Session or Project permission, and review or revoke it in the Drawer.
 - **Carry your context forward.** Saved conversations and automatic compaction preserve source history. Reusable `SKILL.md` instructions bring your workflows into the conversation.
 - **Read comfortably.** Pastel Markdown, [syntax-highlighted code](.agents/specs/markdown.md#code-theme), and native math with hats and Chinese labels. Reasoning, tool groups and messages stay compact; copy follows selection.

@@ -68,11 +68,17 @@ impl Projector {
                     );
                     calls.push(call_id);
                 }
-                // Recorded for replay and for the row the contract shapes; projected as nothing yet.
+                // One event in its terminal state, the same one the live step emitted (ENT-3).
+                AssistantBlock::ServerToolCall { item_id, call } => {
+                    self.emit(ConversationEvent::ServerToolCalled {
+                        agent_id: agent_id.clone(),
+                        item_id: item_id.clone(),
+                        call: call.clone(),
+                    })?;
+                }
                 AssistantBlock::Text { .. }
                 | AssistantBlock::Reasoning { .. }
-                | AssistantBlock::ReplayOnly { .. }
-                | AssistantBlock::ServerToolCall { .. } => {}
+                | AssistantBlock::ReplayOnly { .. } => {}
             }
         }
         if calls.is_empty() {

@@ -37,7 +37,10 @@ streaming and after finalization; internal line breaks and SEL-2's original sour
 each accepted lifecycle transition advances exactly one revision on the original entry. Display
 order is first appearance, execution completion order is event order, and model result order stays
 the batch's model-call order (APV-5). Rejected: moving a completed call to the tail or using its
-completion position as model order.
+completion position as model order. A server tool call is one entry too, and appears once, in the
+state it ended in, at revision zero: nothing here queued or dispatched it, so it never transitions,
+and a second report of the same entry is a duplicate the notice log keeps. It is drawn in the tool
+row's grammar, and the row and its colour are the contract's (ui-ux §transcript grammar).
 
 **ENT-3 — Replay is pure reduction.** Feeding the same ordered envelopes to a fresh projection
 produces the same state and can only mutate that projection; it cannot contact a provider, consult

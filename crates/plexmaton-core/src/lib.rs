@@ -40,7 +40,7 @@ pub use tree_snapshot::{
 pub use tree_source::{MAX_TREE_SOURCE_BYTES, TreeSourceError, TreeSourceRequest};
 
 pub use reasoning::ReasoningEffort;
-pub use server_tool::{ServerTool, ServerToolAction, ServerToolCall};
+pub use server_tool::{ServerTool, ServerToolAction, ServerToolCall, ServerToolStatus};
 pub use transcript::{
     CommandInvocation, ToolCallStatus, ToolDetail, ToolPresentation, TranscriptRole,
 };
@@ -62,6 +62,7 @@ impl ConversationEvent {
             | Self::TranscriptDelta { agent_id, .. }
             | Self::TranscriptItemFinalized { agent_id, .. }
             | Self::ToolCallChanged { agent_id, .. }
+            | Self::ServerToolCalled { agent_id, .. }
             | Self::AttentionRequested { agent_id, .. }
             | Self::AttentionResolved { agent_id, .. }
             | Self::TaskAssigned { agent_id, .. }
@@ -376,6 +377,18 @@ pub enum ConversationEvent {
         /// Bounded semantic detail used by open and copy presentations.
         presentation: ToolPresentation,
     },
+    /// A tool the provider ran on its own side inside one model call, reported once it ended.
+    ///
+    /// Nothing here was queued, admitted or dispatched, so the entry appears in its terminal state
+    /// and never transitions. It says what the route reported and claims nothing further.
+    ServerToolCalled {
+        /// Agent whose model call the provider ran the tool inside.
+        agent_id: AgentId,
+        /// Transcript position assigned when the call was reported.
+        item_id: TranscriptItemId,
+        /// The tool, what it did with it, and how it ended.
+        call: ServerToolCall,
+    },
     /// A background agent needs a user decision.
     ///
     /// Delivery must never move focus or open a modal surface; the item joins the Attention queue.
@@ -490,9 +503,10 @@ pub struct ConversationEventEnvelope {
 mod tests {
     use super::{
         AgentId, AgentStatus, ApprovalDecision, ApprovalId, AttentionId, AttentionRequest,
-        ConversationEvent, ConversationEventEnvelope, EventSequence, IdError, MailId, TokenCounts,
-        TokenUsage, ToolCallId, ToolCallStatus, ToolCapability, ToolDetail, ToolPresentation,
-        TranscriptItemId, TranscriptRole, TurnId,
+        ConversationEvent, ConversationEventEnvelope, EventSequence, IdError, MailId, ServerTool,
+        ServerToolAction, ServerToolCall, ServerToolStatus, TokenCounts, TokenUsage, ToolCallId,
+        ToolCallStatus, ToolCapability, ToolDetail, ToolPresentation, TranscriptItemId,
+        TranscriptRole, TurnId,
     };
 
     fn agent(value: &str) -> AgentId {
@@ -589,6 +603,19 @@ mod tests {
                     outcome: Some(ToolDetail::Diff {
                         patch: "-old\n+new\n".into(),
                     }),
+                },
+            },
+            ConversationEvent::ServerToolCalled {
+                agent_id: agent("agent-a"),
+                item_id: TranscriptItemId::new("item-search-1")
+                    .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+                call: ServerToolCall {
+                    tool: ServerTool::WebSearch,
+                    action: ServerToolAction::FindInPage {
+                        url: "https://example.test/δ".into(),
+                        pattern: "汉字".into(),
+                    },
+                    status: ServerToolStatus::Failed,
                 },
             },
             ConversationEvent::AttentionRequested {

@@ -65,6 +65,7 @@ pub(crate) fn transcript_layout_with_prefix(
             return transcript_text_with_prefix(item, width, math, prefix);
         }
         TranscriptEntryView::Tool(tool) => tool::prepared_entry(tool, appearance),
+        TranscriptEntryView::ServerTool(view) => tool::prepared_server_tool(view, appearance),
         TranscriptEntryView::Artifact(artifact) => {
             let line = Line::from(vec![
                 Span::styled("@ ", Role::NewInformation),
@@ -244,6 +245,7 @@ pub(crate) fn discloses(entry: &TranscriptEntryView) -> bool {
         TranscriptEntryView::Tool(tool) => {
             tool.presentation.invocation.is_some() || tool.presentation.outcome.is_some()
         }
+        TranscriptEntryView::ServerTool(view) => view.action_source().is_some(),
         TranscriptEntryView::Mail(mail) => !mail.summary.is_empty(),
         TranscriptEntryView::Task(task) => !task.task.is_empty(),
         TranscriptEntryView::Text(_)

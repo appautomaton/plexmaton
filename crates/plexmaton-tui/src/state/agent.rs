@@ -1,6 +1,6 @@
 use plexmaton_core::{
-    AgentId, AgentStatus, ArtifactId, MailId, TokenUsage, ToolCallId, ToolCallStatus,
-    ToolPresentation, TranscriptItemId, TranscriptRole, TurnId,
+    AgentId, AgentStatus, ArtifactId, MailId, ServerToolCall, TokenUsage, ToolCallId,
+    ToolCallStatus, ToolPresentation, TranscriptItemId, TranscriptRole, TurnId,
 };
 
 use super::{
@@ -72,6 +72,7 @@ impl AgentView {
         self.entries.iter().filter_map(|entry| match entry {
             TranscriptEntryView::Text(item) => Some(item),
             TranscriptEntryView::Tool(_)
+            | TranscriptEntryView::ServerTool(_)
             | TranscriptEntryView::Artifact(_)
             | TranscriptEntryView::Mail(_)
             | TranscriptEntryView::Task(_)
@@ -302,6 +303,23 @@ impl AgentView {
         )
     }
 
+    /// Files one call the provider ran, in the state it ended in. It never transitions, so a
+    /// second event for the same entry is a duplicate rather than an update (ENT-2).
+    pub(super) fn note_server_tool(
+        &mut self,
+        entry_id: TranscriptItemId,
+        call: ServerToolCall,
+    ) -> Result<bool, ReduceError> {
+        self.insert_terminal(
+            entry_id.clone(),
+            TranscriptEntryView::ServerTool(super::ServerToolView {
+                entry_id,
+                call,
+                revision: 0,
+            }),
+        )
+    }
+
     /// Adds one outgoing mail item to its producer's transcript.
     pub(super) fn deliver_mail(
         &mut self,
@@ -417,6 +435,7 @@ impl AgentView {
         match entry {
             TranscriptEntryView::Text(item) => Ok(item),
             TranscriptEntryView::Tool(_)
+            | TranscriptEntryView::ServerTool(_)
             | TranscriptEntryView::Artifact(_)
             | TranscriptEntryView::Mail(_)
             | TranscriptEntryView::Task(_)

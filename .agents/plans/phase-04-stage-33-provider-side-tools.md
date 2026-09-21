@@ -5,7 +5,7 @@
 | Phase | [Phase 04](../phases/phase-04-product-polish.md) stage 33 |
 | Contract | PRV-1/PRV-3/PRV-5/PRV-6, [tool-admission](../specs/tool-admission.md), [ui-ux](../ui-ux.md) transcript grammar |
 | Evidence | [Provider-side tools spike](../spikes/provider-side-tools/README.md) |
-| Status | Slices 1–3 and 5 implemented and locally verified; slice 4 open; slice 6 open for the row's spec and the spike's promotion |
+| Status | Slices 1–5 implemented and locally verified; slice 6 open for the spike's promotion and this plan's deletion |
 
 ## Outcome
 
@@ -43,11 +43,12 @@ beside it, rather than leaving a second reading in the corpus.
    against. Usage stops failing a step when a provider reports non-zero hosted-tool counts, and
    accounts them instead.
 
-4. **Transcript.** The event reaches the workspace as a row naming what was searched or opened.
-   What else the row can show is the route's to give: some return the queries alone, others add
-   citations or the results. The row shows what its route returned and claims nothing further;
-   the [spike](../spikes/provider-side-tools/meta-route.md) records what each measured route
-   gives. Three widths reviewed before the slice closes.
+4. **Transcript — implemented.** The call reaches the workspace as one event in its terminal state
+   and one row in the tool row's grammar, coloured for who ran it (ui-ux §transcript grammar,
+   ENT-2). The row shows what its route returned and claims nothing further; the
+   [spike](../spikes/provider-side-tools/meta-route.md) records what each measured route gives.
+   The user chose the grammar and colour from rendered candidates and reviewed the real frames at
+   three widths on 2026-09-21.
 
 5. **Replay — implemented.** A hosted-tool item round-trips when the conversation continues, under PRV-3's
    existing sidecar rules, with its status and without its provider-assigned id, which the route in
@@ -68,9 +69,6 @@ that needs two turns, and because the arm it picks is informed by what the row h
 
 ## Open, to settle inside the stage
 
-- Does a provider-side row reuse the existing tool row with a marker naming the provider as the
-  actor, or is it a row of its own? Rendered frames decide this, not prose, and the contract owns
-  the answer.
 - Where does hosted-tool spend belong in the cost surface? It is provider-side work the owner did
   not select a model for, and the usage counter names requests rather than tokens.
 

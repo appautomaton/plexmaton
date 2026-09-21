@@ -254,9 +254,12 @@ impl Step {
     }
 
     /// Records a call the provider already ran. It takes no call identity of ours and joins no
-    /// batch: nothing here will be dispatched, so nothing here can be reused or left undone.
+    /// batch: nothing here will be dispatched, so nothing here can be reused or left undone. The
+    /// workspace hears of it now, as one event in its terminal state, the way replay will say it.
     pub(crate) fn note_server_tool(
         &mut self,
+        record: &mut Record,
+        reaction: &mut Reaction,
         position: ModelOutputPosition,
         call: ServerToolCall,
     ) -> Result<(), StepAssemblyError> {
@@ -276,20 +279,32 @@ impl Step {
             TranscriptRole::Assistant,
             position,
         );
+        let pending = PendingOutput::ServerToolCall {
+            item_id: item_id.clone(),
+            call: call.clone(),
+        };
         match self.outputs.entry(position) {
             Entry::Vacant(entry) => {
-                entry.insert(PendingOutput::ServerToolCall { item_id, call });
+                entry.insert(pending);
             }
             // The adapter's replay for the same item may have landed first and reserved the
             // position as replay-only; the call it belongs to takes the position over.
             Entry::Occupied(mut entry)
                 if matches!(entry.get(), PendingOutput::ReplayOnly { .. }) =>
             {
-                entry.insert(PendingOutput::ServerToolCall { item_id, call });
+                entry.insert(pending);
             }
             Entry::Occupied(_) => return Err(StepAssemblyError::ConflictingPosition),
         }
         self.tool_argument_bytes = tool_argument_bytes;
+        record.emit(
+            reaction,
+            ConversationEvent::ServerToolCalled {
+                agent_id: record.agent_id().clone(),
+                item_id,
+                call,
+            },
+        );
         Ok(())
     }
 

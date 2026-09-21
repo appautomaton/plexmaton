@@ -55,6 +55,7 @@ impl<'a> CurrentWork<'a> {
                 }
                 TranscriptEntryView::Text(_)
                 | TranscriptEntryView::Tool(_)
+                | TranscriptEntryView::ServerTool(_)
                 | TranscriptEntryView::Artifact(_)
                 | TranscriptEntryView::Mail(_)
                 | TranscriptEntryView::Task(_)

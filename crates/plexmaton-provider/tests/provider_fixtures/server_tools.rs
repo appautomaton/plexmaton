@@ -2,7 +2,7 @@ use super::*;
 use std::convert::Infallible;
 
 use futures_util::stream;
-use plexmaton_core::ServerToolAction;
+use plexmaton_core::{ServerToolAction, ServerToolStatus};
 use plexmaton_provider::{DecodeError, DecodeLimits, SseDecodeError, drive_sse};
 
 const CREATED: &str = r#"event: response.created
@@ -18,9 +18,54 @@ data: {"type":"response.completed","sequence_number":3,"response":{"id":"resp_fi
 "#;
 
 fn search_done(action: &str) -> String {
+    done_with_status("completed", action)
+}
+
+fn done_with_status(status: &str, action: &str) -> String {
     format!(
-        "{CREATED}event: response.output_item.done\ndata: {{\"type\":\"response.output_item.done\",\"sequence_number\":2,\"output_index\":0,\"item\":{{\"id\":\"ws_fixture_x\",\"type\":\"web_search_call\",\"status\":\"completed\"{action}}}}}\n\n{COMPLETED}"
+        "{CREATED}event: response.output_item.done\ndata: {{\"type\":\"response.output_item.done\",\"sequence_number\":2,\"output_index\":0,\"item\":{{\"id\":\"ws_fixture_x\",\"type\":\"web_search_call\",\"status\":\"{status}\"{action}}}}}\n\n{COMPLETED}"
     )
+}
+
+/// PRV-5: a call the provider gave up on is carried with that outcome, so the row can say so, and
+/// a done item that still claims to be running fails the step rather than being read as either.
+#[tokio::test]
+async fn prv_5_a_server_tool_calls_outcome_is_typed_from_its_status() {
+    for (status, expected) in [
+        ("failed", ServerToolStatus::Failed),
+        ("incomplete", ServerToolStatus::Failed),
+        ("completed", ServerToolStatus::Completed),
+    ] {
+        let (result, emitted) = decode(&done_with_status(
+            status,
+            r#","action":{"type":"search","query":"rust release"}"#,
+        ))
+        .await;
+        assert!(result.is_ok(), "{status}: {result:?}");
+        assert!(
+            matches!(
+                emitted.first(),
+                Some(ModelEvent::ServerToolCall { call, .. }) if call.status == expected
+            ),
+            "{status}: {emitted:?}"
+        );
+    }
+    for status in ["in_progress", "searching"] {
+        let (result, emitted) = decode(&done_with_status(
+            status,
+            r#","action":{"type":"search","query":"rust release"}"#,
+        ))
+        .await;
+        assert!(
+            matches!(
+                result,
+                Err(SseDecodeError::Decode(DecodeError::UnsupportedEvent(ref kind)))
+                    if *kind == format!("web_search_call.status:{status}")
+            ),
+            "{status}: {result:?}"
+        );
+        assert!(emitted.is_empty(), "{status}: {emitted:?}");
+    }
 }
 
 async fn decode(source: &str) -> (Result<(), SseDecodeError<Infallible>>, Vec<ModelEvent>) {

@@ -59,8 +59,8 @@ pub(crate) use disclosure::{DisclosureState, EntryAppearance, EntryTarget};
 pub(crate) use drawer::Shown;
 pub use drawer::{Drawer, Page};
 pub use entry::{
-    ArtifactView, HandoffView, MailView, TaskView, ToolCallView, TranscriptEntryView,
-    TranscriptItemView, TranscriptTextKind,
+    ArtifactView, HandoffView, MailView, ServerToolView, TaskView, ToolCallView,
+    TranscriptEntryView, TranscriptItemView, TranscriptTextKind,
 };
 pub use ingest::{ApplyOutcome, ReduceError};
 pub(crate) use input_queue::{QUEUE_RULE_ROWS, queued_lines};
