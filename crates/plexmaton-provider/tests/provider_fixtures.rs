@@ -1007,8 +1007,10 @@ async fn prv_5_responses_web_search_call_is_carried_as_a_server_tool_call() {
     // The agent records the turn: both calls become blocks beside the text, and nothing is queued.
     complete_answer(&mut agent, &events);
 
-    // PRV-3: the next request replays each call as the item it was, identity and status from the
-    // sidecar, action from the record, in the order the provider produced them.
+    // PRV-3: the next request replays each call as the item it was, status from the sidecar and
+    // action from the record, in the order the provider produced them. The provider's id stays in
+    // the sidecar: the one live route turns a replayed id into a result block the upstream refuses,
+    // and Meta documents the id as optional.
     use serde_json::{Value, json};
     let reaction = agent.handle_at(
         plexmaton_agent::Input::Submitted {
@@ -1040,13 +1042,13 @@ async fn prv_5_responses_web_search_call_is_carried_as_a_server_tool_call() {
         .filter(|item| item["type"] == "web_search_call")
         .collect();
     assert_eq!(searches.len(), 2, "{kinds:?}");
-    assert_eq!(searches[0]["id"], "ws_fixture_1");
+    assert!(searches[0].get("id").is_none(), "{:?}", searches[0]);
     assert_eq!(searches[0]["status"], "completed");
     assert_eq!(
         searches[0]["action"],
         json!({"type": "search", "query": "latest stable Rust release", "queries": ["latest stable Rust release"]})
     );
-    assert_eq!(searches[1]["id"], "ws_fixture_2");
+    assert!(searches[1].get("id").is_none(), "{:?}", searches[1]);
     assert_eq!(
         searches[1]["action"],
         json!({"type": "open_page", "url": "https://blog.rust-lang.org/releases/"})

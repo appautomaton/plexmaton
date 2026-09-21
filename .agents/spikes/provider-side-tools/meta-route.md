@@ -70,6 +70,24 @@ translation and back intact; usage reported 2.1k in, 123 out; nothing on screen 
 Whether the encrypted reasoning items survived that replay is not observable from the screen and
 is untested.
 
+## A replayed search item must not carry its id, observed
+
+Measured 2026-09-21 through the same route, replaying one `web_search_call` in `input` ahead of the
+assistant's answer, then asking a follow-up.
+
+| Replayed item | Result |
+| --- | --- |
+| none | 200 |
+| `id` + `status` + `action` with `query` and `queries` | 400, "content block `web_search_tool_result` is not supported on `assistant` messages" |
+| same without `id` | **200**, answered |
+| `id` present, any action shape or none | 400, same message |
+
+The gateway's Responses-to-Claude translator turns any replayed item id into a fabricated result
+block on the assistant message, which the upstream refuses. Meta documents the id as optional on
+replay. So the encoder replays the item with its status and action and keeps the id in the sidecar
+only. Found by driving this branch's binary through a search turn and a follow-up: the first
+answered 1.98.1, the second returned "provider returned HTTP 400" until the id was dropped.
+
 ## The gateway already has a native Meta route
 
 `cli-proxy-api` declares `meta-api-key` as a provider kind. `MetaKey` is a type alias of `CodexKey`,

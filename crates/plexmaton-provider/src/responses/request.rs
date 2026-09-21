@@ -227,8 +227,10 @@ fn encode_assistant(
                 input.push(item);
             }
             AssistantBlock::ServerToolCall { call, .. } => {
-                // The item is rebuilt from the record; the sidecar adds only the provider's own
-                // identity and status, the way a function call's does.
+                // The item is rebuilt from the record and the sidecar adds the provider's status.
+                // Its identity is retained and not sent: the one live route turns a replayed id
+                // into a result block the upstream refuses on an assistant message, and Meta
+                // documents the id as optional on replay (PRV-3).
                 let kind = match call.tool {
                     ServerTool::WebSearch => "web_search_call",
                 };
@@ -240,12 +242,9 @@ fn encode_assistant(
                 if let Some(replay) = replay {
                     let metadata: ResponseReplay = serde_json::from_str(replay.payload())
                         .map_err(|_| EncodeError::InvalidReplayItem)?;
-                    let ResponseReplay::WebSearchCall { id, status } = metadata else {
+                    let ResponseReplay::WebSearchCall { id: _, status } = metadata else {
                         return Err(EncodeError::InvalidReplayItem);
                     };
-                    if let Some(id) = id {
-                        item["id"] = Value::String(id);
-                    }
                     if let Some(status) = status {
                         item["status"] =
                             serde_json::to_value(status).map_err(EncodeError::InvalidReplayJson)?;

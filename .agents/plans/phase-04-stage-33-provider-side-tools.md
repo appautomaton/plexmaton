@@ -50,9 +50,9 @@ beside it, rather than leaving a second reading in the corpus.
    gives. Three widths reviewed before the slice closes.
 
 5. **Replay — implemented.** A hosted-tool item round-trips when the conversation continues, under PRV-3's
-   existing sidecar rules, and its provider-assigned id is nothing the harness has to preserve.
-   Whether the item is sent back or stripped is a decision rather than a constraint, and the test
-   says which.
+   existing sidecar rules, with its status and without its provider-assigned id, which the route in
+   daily use rejects and Meta documents as optional. The test says so, and a live follow-up turn
+   proved it.
 
 6. **Corpus.** PRV-5's refusal and its rejected alternative are rewritten to what the code now
    does. PRV-6 gains the declaration. The evidence table gains a row per invariant. The spike is

@@ -32,7 +32,11 @@ a semantic stop is released only after the stream trailer passes validation.
 **PRV-3 — Semantics and replay are exact but separate.** Every exposed reasoning artifact is
 retained in output order. Bounded replay sidecars attach to text, reasoning or calls; a replay-only
 block retains a part with no visible content. Responses retains item identity/status, message phase
-and content grouping, a server-tool call's identity and status, as well as encrypted reasoning. Messages retains complete thinking/signature and redacted
+and content grouping, a server-tool call's identity and status, as well as encrypted reasoning. A
+server-tool call replays with its status and without its identity: the route in daily use turns a
+replayed id into a result block the upstream refuses on an assistant message, and Meta documents the
+id as optional on replay. Rejected: replaying the id, which is the shape Codex sends and the one
+that fails here. Messages retains complete thinking/signature and redacted
 blocks; Gemini retains signatures on their original parts, signature-only text-field absence and
 optional upstream call IDs. Chat
 retains recognized reasoning field identity and refuses unsupported structured reasoning; its
