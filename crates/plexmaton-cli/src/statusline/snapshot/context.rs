@@ -67,6 +67,7 @@ impl Context {
             Err(ContextBudgetError::Encoding(error)) => match error {
                 EncodeError::MissingThinkingSignature
                 | EncodeError::OpaqueReplayInChat
+                | EncodeError::ServerToolCallInChat
                 | EncodeError::UnrepresentableChatOrder => Reason::HistoryIncompatible,
                 EncodeError::UnresolvedCollaboration
                 | EncodeError::InvalidToolArguments

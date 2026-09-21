@@ -307,6 +307,7 @@ fn status_context_refusals_are_typed_and_content_free() {
     use plexmaton_provider::{ContextBudgetError, EncodeError};
     for (error, reason) in [
         (EncodeError::OpaqueReplayInChat, "history_incompatible"),
+        (EncodeError::ServerToolCallInChat, "history_incompatible"),
         (
             EncodeError::MissingThinkingSignature,
             "history_incompatible",
