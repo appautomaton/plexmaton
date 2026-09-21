@@ -1,6 +1,7 @@
 //! Typed model registry and pure home/config resolution.
 
 use plexmaton_core::ReasoningEffort;
+pub use plexmaton_core::ServerTool;
 use std::{collections::BTreeMap, fmt};
 
 mod environment;
@@ -65,17 +66,6 @@ impl ModelApi {
             | Self::GoogleGenerateContent => true,
         }
     }
-}
-
-/// One tool the provider runs on its own side, inside the model call the owner already authorised.
-///
-/// Configuration names the capability and the selected dialect owns its spelling (PRV-6). Nothing
-/// infers a declaration from a provider or model name: that would put authority in a name, which
-/// is what PRV-6 exists to refuse.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ServerTool {
-    WebSearch,
 }
 
 /// Explicit cache intent; no provider cache retention is promised by this setting.

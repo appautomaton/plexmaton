@@ -15,6 +15,7 @@ use thiserror::Error;
 mod conversation_tree;
 mod permissions;
 mod reasoning;
+mod server_tool;
 mod transcript;
 mod tree_edit;
 mod tree_snapshot;
@@ -39,6 +40,7 @@ pub use tree_snapshot::{
 pub use tree_source::{MAX_TREE_SOURCE_BYTES, TreeSourceError, TreeSourceRequest};
 
 pub use reasoning::ReasoningEffort;
+pub use server_tool::{ServerTool, ServerToolAction, ServerToolCall};
 pub use transcript::{
     CommandInvocation, ToolCallStatus, ToolDetail, ToolPresentation, TranscriptRole,
 };

@@ -3,6 +3,7 @@
 use plexmaton_agent::{
     AssistantBlock, AssistantOutput, BlockReplay, ContextAtom, ContextAtomValue, ModelRequest,
 };
+use plexmaton_core::ServerToolAction;
 use serde_json::{Value, json};
 
 use super::replay::{MessagePartKind, ResponseReplay};
@@ -225,6 +226,33 @@ fn encode_assistant(
                 }
                 input.push(item);
             }
+            AssistantBlock::ServerToolCall { call, .. } => {
+                // The item is rebuilt from the record; the sidecar adds only the provider's own
+                // identity and status, the way a function call's does.
+                let kind = match call.tool {
+                    ServerTool::WebSearch => "web_search_call",
+                };
+                let mut item = json!({
+                    "type": kind,
+                    "status": "completed",
+                    "action": web_search_action(&call.action),
+                });
+                if let Some(replay) = replay {
+                    let metadata: ResponseReplay = serde_json::from_str(replay.payload())
+                        .map_err(|_| EncodeError::InvalidReplayItem)?;
+                    let ResponseReplay::WebSearchCall { id, status } = metadata else {
+                        return Err(EncodeError::InvalidReplayItem);
+                    };
+                    if let Some(id) = id {
+                        item["id"] = Value::String(id);
+                    }
+                    if let Some(status) = status {
+                        item["status"] =
+                            serde_json::to_value(status).map_err(EncodeError::InvalidReplayJson)?;
+                    }
+                }
+                input.push(item);
+            }
         }
     }
     debug_assert!(
@@ -266,6 +294,7 @@ fn encode_text_replay(
             part,
             annotations,
         } => (id, phase, status, content_index, part, annotations),
+        ResponseReplay::WebSearchCall { .. } => return Err(EncodeError::InvalidReplayItem),
         ResponseReplay::EmptyMessage { id, phase, status } => {
             if !text.is_empty() {
                 return Err(EncodeError::InvalidReplayItem);
@@ -324,4 +353,22 @@ fn encode_text_replay(
         parts.push(content);
     }
     Ok(())
+}
+
+/// The wire's spelling of what a search did. `query` is kept beside `queries` because both
+/// spellings have been observed on live routes, and a replay should read as the item did.
+fn web_search_action(action: &ServerToolAction) -> Value {
+    match action {
+        ServerToolAction::Search { queries } => {
+            let mut value = json!({"type": "search", "queries": queries});
+            if let Some(first) = queries.first() {
+                value["query"] = Value::String(first.clone());
+            }
+            value
+        }
+        ServerToolAction::OpenPage { url } => json!({"type": "open_page", "url": url}),
+        ServerToolAction::FindInPage { url, pattern } => {
+            json!({"type": "find_in_page", "url": url, "pattern": pattern})
+        }
+    }
 }

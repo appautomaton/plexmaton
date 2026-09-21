@@ -136,6 +136,8 @@ pub enum EncodeError {
     InvalidToolName,
     #[error("opaque provider replay cannot be sent through Chat Completions")]
     OpaqueReplayInChat,
+    #[error("a call the provider ran on its own side has no Chat Completions representation")]
+    ServerToolCallInChat,
     #[error("ordered assistant blocks cannot be represented by Chat Completions")]
     UnrepresentableChatOrder,
     #[error("stored provider replay is not valid JSON: {0}")]

@@ -32,7 +32,7 @@ a semantic stop is released only after the stream trailer passes validation.
 **PRV-3 — Semantics and replay are exact but separate.** Every exposed reasoning artifact is
 retained in output order. Bounded replay sidecars attach to text, reasoning or calls; a replay-only
 block retains a part with no visible content. Responses retains item identity/status, message phase
-and content grouping as well as encrypted reasoning. Messages retains complete thinking/signature and redacted
+and content grouping, a server-tool call's identity and status, as well as encrypted reasoning. Messages retains complete thinking/signature and redacted
 blocks; Gemini retains signatures on their original parts, signature-only text-field absence and
 optional upstream call IDs. Chat
 retains recognized reasoning field identity and refuses unsupported structured reasoning; its
@@ -88,11 +88,17 @@ that was: Chat admits `provider_metadata`, the gateway accounting — cost, cach
 attempts — that rides the final delta beside `finish_reason`, and admits it nowhere else.
 Rejected: refusing it as unexamined, which was right in principle and in practice discarded a whole
 completed answer at its last chunk, on every gateway that sends it.
-A tool the provider ran on its own side falls the other way: a `server_tool_use` block and a
-non-zero server-tool count are content this harness never admitted, never bounded and cannot show,
-and a turn that absorbs them quietly reports work its own record does not contain. Rejected:
-admitting them as opaque replay, which round-trips correctly and leaves the reader an answer whose
-sources appear nowhere in the conversation.
+A tool the provider ran on its own side is carried, not refused. Responses' `web_search_call`
+becomes a server-tool call in the record: what the provider did, a search, an opened page or a find
+within one, bounded the way tool arguments are, with the provider's own item identity and status
+kept as replay metadata. It reaches no admission and no scheduler, because the call already
+happened inside the model call the owner authorised by declaring the route accepts it. An action
+kind this harness cannot name fails the step; a search that arrived with no query is carried as it
+arrived; the progress markers a route streams while searching carry nothing the finished item
+lacks and are ignored. Messages' `server_tool_use` block and a non-zero server-tool count remain
+refused until a Messages route is in daily use to prove a decoder against. Rejected: keeping the
+call as opaque replay alone, which round-trips and leaves the record unable to say a search
+happened; and a catch-all action kind, which would carry content the record cannot name.
 
 **PRV-6 — Configuration names data, never authority.** `~/.plexmaton/config.toml` separates named
 provider routes from their named models and selects one exact provider/model pair. A route owns its

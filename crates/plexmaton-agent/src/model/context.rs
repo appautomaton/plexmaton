@@ -1,3 +1,4 @@
+use plexmaton_core::ServerToolCall;
 use std::collections::BTreeSet;
 
 use plexmaton_core::{ConversationEntryId, ToolCallId, TranscriptItemId};
@@ -72,6 +73,12 @@ pub enum AssistantBlock {
         item_id: TranscriptItemId,
         call: ToolCall,
     },
+    /// A call the provider ran on its own side and reported. Never dispatched here; recorded so
+    /// the transcript can say what was searched and the next request can replay it.
+    ServerToolCall {
+        item_id: TranscriptItemId,
+        call: ServerToolCall,
+    },
 }
 
 impl AssistantBlock {
@@ -81,7 +88,8 @@ impl AssistantBlock {
             Self::Text { item_id, .. }
             | Self::Reasoning { item_id, .. }
             | Self::ReplayOnly { item_id }
-            | Self::ToolCall { item_id, .. } => item_id,
+            | Self::ToolCall { item_id, .. }
+            | Self::ServerToolCall { item_id, .. } => item_id,
         }
     }
 
@@ -89,7 +97,10 @@ impl AssistantBlock {
     pub const fn tool_call(&self) -> Option<&ToolCall> {
         match self {
             Self::ToolCall { call, .. } => Some(call),
-            Self::Text { .. } | Self::Reasoning { .. } | Self::ReplayOnly { .. } => None,
+            Self::Text { .. }
+            | Self::Reasoning { .. }
+            | Self::ReplayOnly { .. }
+            | Self::ServerToolCall { .. } => None,
         }
     }
 }
@@ -278,6 +289,19 @@ impl AssistantOutput {
                 }
                 tool_argument_bytes = tool_argument_bytes
                     .checked_add(call.arguments.len())
+                    .ok_or(ContextError::ToolArgumentsTooLarge)?;
+                if tool_argument_bytes > MAX_ASSISTANT_TOOL_ARGUMENT_BYTES {
+                    return Err(ContextError::ToolArgumentsTooLarge);
+                }
+            }
+            if let AssistantBlock::ServerToolCall { call, .. } = block {
+                // Provider-authored text, bounded the way tool arguments are and counted with them.
+                let bytes = call.action.text_bytes();
+                if bytes > crate::MAX_REQUESTED_TOOL_ARGUMENT_BYTES {
+                    return Err(ContextError::ToolArgumentsTooLarge);
+                }
+                tool_argument_bytes = tool_argument_bytes
+                    .checked_add(bytes)
                     .ok_or(ContextError::ToolArgumentsTooLarge)?;
                 if tool_argument_bytes > MAX_ASSISTANT_TOOL_ARGUMENT_BYTES {
                     return Err(ContextError::ToolArgumentsTooLarge);

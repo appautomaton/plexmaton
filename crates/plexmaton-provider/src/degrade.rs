@@ -63,6 +63,9 @@ pub(crate) fn degraded<'a>(
                 AssistantBlock::ToolCall { call, .. } => Some(Carried::Call(call)),
                 // A replay-only block was never anything but its sidecar.
                 AssistantBlock::ReplayOnly { .. } => None,
+                // A search the previous model ran. Its answer text carries what came of it, and
+                // the next model did not ask for the query.
+                AssistantBlock::ServerToolCall { .. } => None,
             })
             .collect(),
     )

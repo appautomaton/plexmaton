@@ -68,9 +68,11 @@ impl Projector {
                     );
                     calls.push(call_id);
                 }
+                // Recorded for replay and for the row the contract shapes; projected as nothing yet.
                 AssistantBlock::Text { .. }
                 | AssistantBlock::Reasoning { .. }
-                | AssistantBlock::ReplayOnly { .. } => {}
+                | AssistantBlock::ReplayOnly { .. }
+                | AssistantBlock::ServerToolCall { .. } => {}
             }
         }
         if calls.is_empty() {

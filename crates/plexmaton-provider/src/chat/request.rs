@@ -236,6 +236,9 @@ fn encode_assistant(
                     },
                 }));
             }
+            // Reached only with a compatible replay, which this dialect never produced: a foreign
+            // model's search is degraded away before encoding (PRV-3).
+            AssistantBlock::ServerToolCall { .. } => return Err(EncodeError::ServerToolCallInChat),
         }
     }
     Ok(pending.into_message())

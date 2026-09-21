@@ -105,6 +105,20 @@ impl Agent {
                     );
                 }
             }
+            ModelEvent::ServerToolCall { position, call } => {
+                let result = match &mut self.turn {
+                    Turn::Streaming { step, .. } => step.note_server_tool(position, call),
+                    Turn::Idle | Turn::Working { .. } => return,
+                };
+                if let Err(error) = result {
+                    self.fail(
+                        &crate::ModelError::Malformed {
+                            message: error.message().to_owned(),
+                        },
+                        reaction,
+                    );
+                }
+            }
             ModelEvent::Usage(_) => {
                 if let Some(step_id) = self.active_model_step() {
                     reaction.undelivered_model.push(UndeliveredModelInput {

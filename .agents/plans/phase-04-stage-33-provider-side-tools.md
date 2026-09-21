@@ -5,7 +5,7 @@
 | Phase | [Phase 04](../phases/phase-04-product-polish.md) stage 33 |
 | Contract | PRV-1/PRV-3/PRV-5/PRV-6, [tool-admission](../specs/tool-admission.md), [ui-ux](../ui-ux.md) transcript grammar |
 | Evidence | [Provider-side tools spike](../spikes/provider-side-tools/README.md) |
-| Status | Slices 1–2 implemented and locally verified; slices 3–6 open |
+| Status | Slices 1–3 and 5 implemented and locally verified; slice 4 open; slice 6 open for the row's spec and the spike's promotion |
 
 ## Outcome
 
@@ -34,7 +34,7 @@ beside it, rather than leaving a second reading in the corpus.
    is the owner's claim about their route, verified once rather than trusted. No request carries a
    hosted tool the model did not declare.
 
-3. **Decode.** The Responses decoder accepts a `web_search_call` output item on both `added` and
+3. **Decode — implemented.** The Responses decoder accepts a `web_search_call` output item on both `added` and
    `done`, carrying the action the provider took: a query, an opened page, or a find within one.
    An action that arrives without a query is carried as it arrived, not refused. One semantic
    event, shaped so a Messages decoder can emit the same event later without a second one, because
@@ -49,7 +49,7 @@ beside it, rather than leaving a second reading in the corpus.
    the [spike](../spikes/provider-side-tools/meta-route.md) records what each measured route
    gives. Three widths reviewed before the slice closes.
 
-5. **Replay.** A hosted-tool item round-trips when the conversation continues, under PRV-3's
+5. **Replay — implemented.** A hosted-tool item round-trips when the conversation continues, under PRV-3's
    existing sidecar rules, and its provider-assigned id is nothing the harness has to preserve.
    Whether the item is sent back or stripped is a decision rather than a constraint, and the test
    says which.

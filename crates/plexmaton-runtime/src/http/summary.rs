@@ -1,5 +1,6 @@
 //! Bounded, non-streaming semantic collection for a compaction-owned provider attempt.
 
+use plexmaton_core::ServerToolCall;
 use std::{collections::BTreeMap, future};
 
 use plexmaton_agent::{
@@ -77,6 +78,9 @@ impl SummaryCollector {
                     .get_or_insert(CompactionFailure::ToolCallOutput);
                 self.tool_call(position, call)
             }
+            // A summary that searched is still a summary: the text is what compaction keeps, and
+            // the call is recorded beside it rather than refused.
+            ModelEvent::ServerToolCall { position, call } => self.server_tool_call(position, call),
             ModelEvent::Usage(_) | ModelEvent::Stopped(_) => {
                 unreachable!("the shared HTTP driver consumes accounting and terminal events")
             }
@@ -180,6 +184,37 @@ impl SummaryCollector {
             .or_insert(AssistantBlock::ReplayOnly { item_id });
         self.replay.insert(position, replay);
         self.replay_bytes = bytes;
+        Ok(())
+    }
+
+    fn server_tool_call(
+        &mut self,
+        position: ModelOutputPosition,
+        call: ServerToolCall,
+    ) -> Result<(), CompactionFailure> {
+        self.reserve(position)?;
+        let bytes = call.action.text_bytes();
+        if bytes > MAX_REQUESTED_TOOL_ARGUMENT_BYTES {
+            return Err(CompactionFailure::OutputTooLarge);
+        }
+        let total = self
+            .argument_bytes
+            .checked_add(bytes)
+            .filter(|&total| total <= MAX_ASSISTANT_TOOL_ARGUMENT_BYTES)
+            .ok_or(CompactionFailure::OutputTooLarge)?;
+        let item_id = self.item_id(position);
+        let block = self
+            .blocks
+            .entry(position)
+            .or_insert_with(|| AssistantBlock::ReplayOnly { item_id });
+        if !matches!(block, AssistantBlock::ReplayOnly { .. }) {
+            return Err(CompactionFailure::Malformed);
+        }
+        *block = AssistantBlock::ServerToolCall {
+            item_id: block.item_id().clone(),
+            call,
+        };
+        self.argument_bytes = total;
         Ok(())
     }
 

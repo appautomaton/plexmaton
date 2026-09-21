@@ -1,5 +1,6 @@
 //! One model step's ordered, bounded output assembly.
 
+use plexmaton_core::ServerToolCall;
 use std::collections::{BTreeMap, btree_map::Entry};
 
 use plexmaton_core::{ConversationEvent, TranscriptItemId, TranscriptRole, TurnId};
@@ -36,6 +37,10 @@ enum PendingOutput {
     ToolCall {
         item_id: TranscriptItemId,
         call: ToolCall,
+    },
+    ServerToolCall {
+        item_id: TranscriptItemId,
+        call: ServerToolCall,
     },
 }
 
@@ -248,6 +253,46 @@ impl Step {
         }
     }
 
+    /// Records a call the provider already ran. It takes no call identity of ours and joins no
+    /// batch: nothing here will be dispatched, so nothing here can be reused or left undone.
+    pub(crate) fn note_server_tool(
+        &mut self,
+        position: ModelOutputPosition,
+        call: ServerToolCall,
+    ) -> Result<(), StepAssemblyError> {
+        let bytes = call.action.text_bytes();
+        if bytes > crate::MAX_REQUESTED_TOOL_ARGUMENT_BYTES {
+            return Err(StepAssemblyError::ToolArgumentsTooLarge);
+        }
+        let tool_argument_bytes = self
+            .tool_argument_bytes
+            .checked_add(bytes)
+            .filter(|&total| total <= MAX_ASSISTANT_TOOL_ARGUMENT_BYTES)
+            .ok_or(StepAssemblyError::ToolArgumentsTooLarge)?;
+        self.reserve_output_position(position)?;
+        let item_id = Record::stream_item_id(
+            &self.turn_id,
+            self.index,
+            TranscriptRole::Assistant,
+            position,
+        );
+        match self.outputs.entry(position) {
+            Entry::Vacant(entry) => {
+                entry.insert(PendingOutput::ServerToolCall { item_id, call });
+            }
+            // The adapter's replay for the same item may have landed first and reserved the
+            // position as replay-only; the call it belongs to takes the position over.
+            Entry::Occupied(mut entry)
+                if matches!(entry.get(), PendingOutput::ReplayOnly { .. }) =>
+            {
+                entry.insert(PendingOutput::ServerToolCall { item_id, call });
+            }
+            Entry::Occupied(_) => return Err(StepAssemblyError::ConflictingPosition),
+        }
+        self.tool_argument_bytes = tool_argument_bytes;
+        Ok(())
+    }
+
     pub(crate) fn contains_call(&self, call_id: &plexmaton_core::ToolCallId) -> bool {
         self.outputs.values().any(|output| {
             matches!(output, PendingOutput::ToolCall { call, .. } if &call.call_id == call_id)
@@ -334,6 +379,9 @@ impl Step {
                 }
                 PendingOutput::ToolCall { item_id, call } => {
                     AssistantBlock::ToolCall { item_id, call }
+                }
+                PendingOutput::ServerToolCall { item_id, call } => {
+                    AssistantBlock::ServerToolCall { item_id, call }
                 }
             };
             let block_index = u16::try_from(blocks.len())

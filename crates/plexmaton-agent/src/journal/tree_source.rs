@@ -137,7 +137,7 @@ impl ConversationJournal {
                         }
                     }
                 }
-                AssistantBlock::ReplayOnly { .. } => {}
+                AssistantBlock::ReplayOnly { .. } | AssistantBlock::ServerToolCall { .. } => {}
             }
         }
         Ok(())

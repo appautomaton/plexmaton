@@ -76,7 +76,12 @@ impl ResponsesDecoder {
             | "response.content_part.done"
             | "response.reasoning_summary_part.added"
             | "response.reasoning_summary_part.done"
-            | "response.reasoning_summary_text.done" => Ok(Vec::new()),
+            | "response.reasoning_summary_text.done"
+            // Progress markers for a search the provider is running; the finished item carries
+            // everything they do (PRV-5).
+            | "response.web_search_call.in_progress"
+            | "response.web_search_call.searching"
+            | "response.web_search_call.completed" => Ok(Vec::new()),
             "response.reasoning_summary_text.delta" => self.reasoning_delta(&event),
             "response.output_text.delta" => self.text_delta(&event, false),
             "response.output_text.done" => self.text_done(&event, "text", false),
@@ -199,7 +204,7 @@ impl ResponsesDecoder {
                 )?;
                 call.seed_arguments(optional_string(item, "arguments"), index, limits)
             }
-            "reasoning" | "message" => Ok(()),
+            "reasoning" | "message" | "web_search_call" => Ok(()),
             other => Err(DecodeError::UnsupportedEvent(format!(
                 "response.output_item.added:{other}"
             ))),
@@ -244,6 +249,7 @@ impl ResponsesDecoder {
             "reasoning" => self.reasoning_replay(index, item),
             "function_call" => self.function_call_done(index, item),
             "message" => self.message_done(index, item),
+            "web_search_call" => self.web_search_call_done(index, item),
             other => Err(DecodeError::UnsupportedEvent(format!(
                 "response.output_item.done:{other}"
             ))),
