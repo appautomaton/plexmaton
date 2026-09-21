@@ -82,10 +82,13 @@ assistant's answer, then asking a follow-up.
 | same without `id` | **200**, answered |
 | `id` present, any action shape or none | 400, same message |
 
-The gateway's Responses-to-Claude translator turns any replayed item id into a fabricated result
-block on the assistant message, which the upstream refuses. Meta documents the id as optional on
-replay. So the encoder replays the item with its status and action and keeps the id in the sidecar
-only. Found by driving this branch's binary through a search turn and a follow-up: the first
+The gateway's Responses-to-Claude translator, in `convertResponsesWebSearchCallToClaudeBlocks`,
+rebuilds a replayed item that carries an id as a `server_tool_use` and `web_search_tool_result`
+pair on the assistant message, and the upstream refuses the result half there. Without an id it
+returns nothing, so the item is dropped before Meta sees it, which is harmless: the answer text
+already carries what the search found. Meta documents the id as optional on replay, and its native
+route would receive the item itself. So the encoder replays the item with its status and action and
+keeps the id in the sidecar only. Found by driving this branch's binary through a search turn and a follow-up: the first
 answered 1.98.1, the second returned "provider returned HTTP 400" until the id was dropped.
 
 ## The gateway already has a native Meta route
