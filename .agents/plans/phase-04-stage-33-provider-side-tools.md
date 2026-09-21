@@ -30,24 +30,24 @@ beside it, rather than leaving a second reading in the corpus.
    `{"type":"web_search"}`; Chat Completions emits `web_search_options`, the field OpenAI's own
    search models take; GenerateContent's `google_search` tool is spelled once its facade has been
    measured. Slice 1's gate is the tool name, not the dialect: a declared tool a dialect has no
-   spelling for fails at config load. A spelling the route then ignores is the owner's declaration
-   being wrong, and on Chat Completions the wire does not say so, which is why a declaration is
-   verified once rather than trusted. No request carries a hosted tool the model did not declare.
+   spelling for fails at config load. A route may accept a spelling and ignore it, so a declaration
+   is the owner's claim about their route, verified once rather than trusted. No request carries a
+   hosted tool the model did not declare.
 
 3. **Decode.** The Responses decoder accepts a `web_search_call` output item on both `added` and
-   `done`, carrying the action the provider took: a query, an opened page, or a find within one,
-   and an empty query where the route flattened the action. One semantic event, shaped so a
-   Messages decoder can emit the same event later without a second one, because the spike found
-   the two dialects differ only in wrapper. The Messages `server_tool_use` block keeps PRV-5's
-   refusal in this stage: the owner's local model reaches hosted search over Responses, and no
-   Messages route is in daily use to prove a decoder against. Usage stops failing a step when a
-   provider reports non-zero hosted-tool counts, and accounts them instead.
+   `done`, carrying the action the provider took: a query, an opened page, or a find within one.
+   An action that arrives without a query is carried as it arrived, not refused. One semantic
+   event, shaped so a Messages decoder can emit the same event later without a second one, because
+   the spike found the two dialects differ only in wrapper. The Messages `server_tool_use` block
+   keeps PRV-5's refusal in this stage, because no Messages route is in daily use to prove a decoder
+   against. Usage stops failing a step when a provider reports non-zero hosted-tool counts, and
+   accounts them instead.
 
 4. **Transcript.** The event reaches the workspace as a row naming what was searched or opened.
-   What else the row can show is the route's to give: Messages as observed returns the queries
-   alone, and Meta's Responses surface documents `url_citation` annotations and, when asked,
-   the results. The row shows what its route returned and claims nothing further. Three widths
-   reviewed before the slice closes.
+   What else the row can show is the route's to give: some return the queries alone, others add
+   citations or the results. The row shows what its route returned and claims nothing further;
+   the [spike](../spikes/provider-side-tools/meta-route.md) records what each measured route
+   gives. Three widths reviewed before the slice closes.
 
 5. **Replay.** The blocks round-trip when the conversation continues, under PRV-3's existing
    sidecar rules. The local route accepts a turn with them present or stripped, so the arm this
@@ -76,11 +76,9 @@ that needs two turns, and because the arm it picks is informed by what the row h
 ## Deliberately not in this plan
 
 Running any search locally. A client tool that issues its own isolated model request, which is pi's
-shape and would need tools to reach a provider route. Hosted tools other than search: the local
-gateway refuses `web_fetch`, `code_interpreter` and `file_search` on both dialects, so a second tool
-has no route to be tested against. Recovering findings a route does not return; the Messages route as observed returns none.
-Per-call approval, because the fence position already holds that configuring a provider authorises
-the call this rides on. Decoding `server_tool_use` on Messages, which keeps its refusal until a
-Messages route is in daily use. Switching the gateway to its native `meta-api-key` route, which is
-the owner's and upgrades citations, results and action fidelity without changing what this stage
+shape and would need tools to reach a provider route. Hosted tools other than search, which no
+measured route offered. Recovering findings a route does not return. Per-call approval, because the
+fence position already holds that configuring a provider authorises the call this rides on.
+Decoding `server_tool_use` on Messages, which keeps its refusal until a Messages route is in daily
+use. The owner's gateway configuration, which changes nothing about what this stage encodes or
 decodes.
