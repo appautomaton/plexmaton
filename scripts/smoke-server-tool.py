@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """ENT-2/PRV-5: a provider-run search lands where the provider placed it, live and on reopen.
 
-One loopback Responses stream with the shape a live gateway produced on 2026-09-21: every
-`web_search_call` is added at its true position between the messages, every one of them is
-finished only after the last message, and the whole stream arrives in one burst. The rows must
+One loopback Responses stream with the shape a live gateway produced on 2026-09-21: encrypted
+reasoning before the messages, every `web_search_call` added at its true position between them,
+every one of them finished only after the last message, and the whole stream in one burst. The rows must
 still sit between the narration lines they belong to, run while unfinished, finish without a
 query when the route reported none, and read the same after the conversation is reopened.
 """
@@ -38,6 +38,17 @@ def search_added(index, item):
                            "action": {"type": "search", "query": ""}}})
 
 
+def reasoning(index, item):
+    """An encrypted reasoning item, as the route sends before each message; replay only."""
+    return b"".join([
+        event({"type": "response.output_item.added", "output_index": index,
+               "item": {"id": item, "type": "reasoning", "status": "in_progress", "summary": []}}),
+        event({"type": "response.output_item.done", "output_index": index,
+               "item": {"id": item, "type": "reasoning", "status": "completed", "summary": [],
+                        "encrypted_content": "c21va2Utb3BhcXVlLXJlYXNvbmluZw=="}}),
+    ])
+
+
 def search_done(index, item, query):
     action = {"type": "search", "query": query}
     return event({"type": "response.output_item.done", "output_index": index,
@@ -49,13 +60,15 @@ def burst():
              "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": 70}
     return b"".join([
         event({"type": "response.created", "response": {"id": "resp_smoke", "status": "in_progress", "output": []}}),
-        message(0, "msg_0", "SMOKE_FIRST checking the release page."),
-        search_added(1, "ws_1"),
-        message(2, "msg_2", "SMOKE_SECOND results point to 1.98.1."),
-        search_added(3, "ws_3"),
-        message(4, "msg_4", "SMOKE_ANSWER 1.98.1"),
-        search_done(1, "ws_1", ""),
-        search_done(3, "ws_3", "Rust 1.98.1 release"),
+        reasoning(0, "rs_0"),
+        message(1, "msg_1", "SMOKE_FIRST checking the release page."),
+        search_added(2, "ws_2"),
+        reasoning(3, "rs_3"),
+        message(4, "msg_4", "SMOKE_SECOND results point to 1.98.1."),
+        search_added(5, "ws_5"),
+        message(6, "msg_6", "SMOKE_ANSWER 1.98.1"),
+        search_done(2, "ws_2", ""),
+        search_done(5, "ws_5", "Rust 1.98.1 release"),
         event({"type": "response.completed", "response": {"id": "resp_smoke", "status": "completed", "usage": usage}}),
     ])
 
