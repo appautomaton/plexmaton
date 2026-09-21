@@ -84,6 +84,32 @@ rather than one.
 Hosted search is the only server-side tool this gateway accepts on either dialect, which bounds
 what a first implementation has to handle.
 
+## Chat Completions carries neither the tool nor the thinking
+
+Measured 2026-09-21 on `muse-spark-1.3` through `/v1/chat/completions`, streaming, `max_tokens`
+4096, one prompt asking for the latest stable Rust release.
+
+| Request | Completion tokens | Answer |
+| --- | --- | --- |
+| no tools | 1733 | 1.98.0 |
+| `{"type":"web_search_20250305","name":"web_search"}` | 2684 | 1.98.0 |
+| `{"type":"web_search"}` | 2163 | 1.98.0 |
+| `web_search_options: {}` | exhausted an 800 budget | empty |
+| same prompt over `/v1/messages` with the hosted tool | 950 | **1.98.1** |
+
+1.98.1 was published after the model's knowledge, so only the Messages run searched. Over Chat
+Completions every spelling returned HTTP 200, produced no `tool_calls` delta and no field beyond
+`role` and `content`, and the model answered from memory after thinking longer. **A hosted-tool
+declaration on this route is swallowed silently.** The wire will not report it, which is the reason
+the declaration has to fail at config load rather than at run time.
+
+Reasoning is discarded on the same route. A one-word answer at `reasoning_effort: high` cost 257
+completion tokens, and the response carried `role` and `content` only, in both streaming and
+non-streaming form: no `reasoning`, no `reasoning_content`, no `reasoning_details`, no reasoning
+count in `usage`. Over Messages the same model returns `redacted_thinking` blocks and a
+`thinking_tokens` count. So on this gateway Muse's reasoning is reachable through Messages as
+opaque replay, and through Chat Completions not at all.
+
 ## The results never arrive
 
 **The gateway forwards the queries and never the findings.** Verified on both transports.
