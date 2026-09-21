@@ -5,7 +5,7 @@
 | Phase | [Phase 04](../phases/phase-04-product-polish.md) stage 33 |
 | Contract | PRV-1/PRV-3/PRV-5/PRV-6, [tool-admission](../specs/tool-admission.md), [ui-ux](../ui-ux.md) transcript grammar |
 | Evidence | [Provider-side tools spike](../spikes/provider-side-tools/README.md) |
-| Status | Slice 1 implemented and locally verified; slices 2–6 open |
+| Status | Slices 1–2 implemented and locally verified; slices 3–6 open |
 
 ## Outcome
 
@@ -25,7 +25,7 @@ beside it, rather than leaving a second reading in the corpus.
    encodable by that model's dialect. A declaration a dialect cannot spell fails at config load,
    before any network work. PRV-6 gains the field; nothing infers it from a provider or model name.
 
-2. **Request encoding.** Each dialect spells the declared capability and owns that spelling alone.
+2. **Request encoding — implemented.** Each dialect spells the declared capability and owns that spelling alone.
    Messages emits `{"type":"web_search_20250305","name":"web_search"}`; Responses emits
    `{"type":"web_search"}`; Chat Completions emits `web_search_options`, the field OpenAI's own
    search models take; GenerateContent's `google_search` tool is spelled once its facade has been

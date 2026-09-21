@@ -20,6 +20,12 @@ pub(crate) fn encode(
     tools: &[FunctionTool],
     max_output_tokens: Option<u32>,
 ) -> Result<Value, EncodeError> {
+    // PRV-6 refuses a hosted tool this dialect cannot spell at config load, so none can arrive
+    // here. Stating it keeps a future spelling from being added to one side and not the other.
+    assert!(
+        model.server_tools().is_none(),
+        "PRV-6: a GenerateContent model cannot declare a hosted tool"
+    );
     let mut contents = Vec::new();
     if !model.workspace_instructions().is_empty() {
         contents.push(json!({"role":"user", "parts":[{"text":model.workspace_instructions()}]}));

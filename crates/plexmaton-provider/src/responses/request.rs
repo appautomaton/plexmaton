@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use super::replay::{MessagePartKind, ResponseReplay};
 
 use crate::{
-    FunctionTool, ResolvedModel,
+    FunctionTool, ResolvedModel, ServerTool,
     codec::{EncodeError, RESPONSES_CODEC_ID, tool_output},
     degrade::{self, Carried},
 };
@@ -20,7 +20,7 @@ pub(crate) fn encode(
     max_output_tokens: Option<u32>,
 ) -> Result<Value, EncodeError> {
     let input = encode_input(model, request)?;
-    let tools: Vec<_> = tools
+    let mut tools: Vec<_> = tools
         .iter()
         .map(|tool| {
             json!({
@@ -32,6 +32,17 @@ pub(crate) fn encode(
             })
         })
         .collect();
+    // PRV-6: configuration named the capability; this dialect owns the spelling. Hosted tools
+    // follow the function tools so the order the owner reads in the body is the order declared.
+    tools.extend(
+        model
+            .server_tools()
+            .unwrap_or_default()
+            .iter()
+            .map(|tool| match tool {
+                ServerTool::WebSearch => json!({"type": "web_search"}),
+            }),
+    );
     let mut body = json!({
         "model": model.wire_id(),
         "input": input,
