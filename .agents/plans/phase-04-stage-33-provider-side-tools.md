@@ -5,7 +5,7 @@
 | Phase | [Phase 04](../phases/phase-04-product-polish.md) stage 33 |
 | Contract | PRV-1/PRV-3/PRV-5/PRV-6, [tool-admission](../specs/tool-admission.md), [ui-ux](../ui-ux.md) transcript grammar |
 | Evidence | [Provider-side tools spike](../spikes/provider-side-tools/README.md) |
-| Status | Slicing; no slice implemented |
+| Status | Sliced; route decided as Responses; no slice implemented |
 
 ## Outcome
 
@@ -34,11 +34,14 @@ beside it, rather than leaving a second reading in the corpus.
    being wrong, and on Chat Completions the wire does not say so, which is why a declaration is
    verified once rather than trusted. No request carries a hosted tool the model did not declare.
 
-3. **Decode.** The Messages decoder accepts `server_tool_use` as a fifth content block and the
-   Responses decoder accepts a `web_search_call` output item, both carrying the action the provider
-   took: a query, an opened page, or a find within one. One semantic event covers both, because the
-   spike found the two dialects differ only in wrapper. Usage stops failing a step when a provider
-   reports non-zero hosted-tool counts, and accounts them instead.
+3. **Decode.** The Responses decoder accepts a `web_search_call` output item on both `added` and
+   `done`, carrying the action the provider took: a query, an opened page, or a find within one,
+   and an empty query where the route flattened the action. One semantic event, shaped so a
+   Messages decoder can emit the same event later without a second one, because the spike found
+   the two dialects differ only in wrapper. The Messages `server_tool_use` block keeps PRV-5's
+   refusal in this stage: the owner's local model reaches hosted search over Responses, and no
+   Messages route is in daily use to prove a decoder against. Usage stops failing a step when a
+   provider reports non-zero hosted-tool counts, and accounts them instead.
 
 4. **Transcript.** The event reaches the workspace as a row naming what was searched or opened.
    What else the row can show is the route's to give: Messages as observed returns the queries
@@ -77,4 +80,7 @@ shape and would need tools to reach a provider route. Hosted tools other than se
 gateway refuses `web_fetch`, `code_interpreter` and `file_search` on both dialects, so a second tool
 has no route to be tested against. Recovering findings a route does not return; the Messages route as observed returns none.
 Per-call approval, because the fence position already holds that configuring a provider authorises
-the call this rides on.
+the call this rides on. Decoding `server_tool_use` on Messages, which keeps its refusal until a
+Messages route is in daily use. Switching the gateway to its native `meta-api-key` route, which is
+the owner's and upgrades citations, results and action fidelity without changing what this stage
+decodes.

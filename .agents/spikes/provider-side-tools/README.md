@@ -75,7 +75,7 @@ fails before any network work. A hosted-tool declaration is the same shape:
 
 ```toml
 [providers.local.models.muse]
-api = "anthropic_messages"
+api = "openai_responses"
 id = "muse-spark-1.3"
 server_tools = ["web_search"]
 ```

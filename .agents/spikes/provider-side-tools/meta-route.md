@@ -13,7 +13,7 @@ served on all three.
 | Surface | Hosted search | Reasoning across turns |
 | --- | --- | --- |
 | Chat Completions `/chat/completions` | **none**: "Search grounding is not available on Chat Completions" | **none**: "Chat Completions does not carry reasoning across turns"; the response carries `message.content` only |
-| Responses `/responses` | `tools: [{"type":"web_search"}]` | `include: ["reasoning.encrypted_content"]`, replayed as `reasoning` output items; `store: false` supported |
+| Responses `/responses` | `tools: [{"type":"web_search"}]`, **observed** through the gateway's existing route | `include: ["reasoning.encrypted_content"]`, replayed as `reasoning` output items, `store: false`; encrypted content **observed** arriving through the gateway |
 | Messages `/messages` | observed working through the gateway with `web_search_20250305` | `redacted_thinking` blocks, observed |
 
 So the Chat Completions facade's two holes measured in [gateway evidence](./gateway-evidence.md)
@@ -35,6 +35,33 @@ true of the Messages surface as observed here, and of OpenAI's inline path as Co
 is not true of Meta's Responses surface, which is the one route on this host that would return
 sources a transcript could show.
 
+## Responses through the existing route, observed
+
+Measured 2026-09-21 through `127.0.0.1:5233/v1/responses` with the gateway still routing Muse via
+`claude-api-key`, so every request below was translated to Messages and back. `store: false`,
+`include: ["reasoning.encrypted_content"]`, `reasoning.effort: high`, `max_output_tokens: 2048`.
+
+| Request | Output items | Answer |
+| --- | --- | --- |
+| `tools: [{"type":"web_search"}]` | 5 `reasoning` with `encrypted_content`, 5 `web_search_call`, 6 `message` | **1.98.1** |
+| same, plus `include: web_search_call.results` | 2 `reasoning`, 1 `web_search_call`, 2 `message` | **1.98.1** |
+| no tools, 2048 budget | none; `status: incomplete`, `incomplete_details.reason: max_output_tokens` | none |
+| no tools, 8192 budget | `reasoning`, `message` | 1.98.0 from memory |
+| `Say: ok`, 2048 budget | `reasoning`, `message`; 16 output tokens | ok |
+
+So a Plexmaton Session on `openai_responses` reaches hosted search on Muse today, with no gateway
+change: the tool declaration crosses the translator, `web_search_call` items come back with
+`action: {"type":"search","query":…}`, and encrypted reasoning is present for replay. The empty
+control run is a budget exhausted while thinking, reported as the typed incomplete state PRV-5
+already maps, not a route defect.
+
+What the translated route loses, each observed: `annotations` is `[]` on every text part and no
+`web_search_call` carries `results`, with or without the include; two of five calls arrived as
+`search` with an empty `query`, where the Messages surface had shown `open_page` actions, so the
+translator flattens action types; and `output_tokens_details.reasoning_tokens` is `0` while the
+Messages surface reports `thinking_tokens`. A decoder must accept an empty query rather than fail
+on it.
+
 ## The gateway already has a native Meta route
 
 `cli-proxy-api` declares `meta-api-key` as a provider kind. `MetaKey` is a type alias of `CodexKey`,
@@ -47,8 +74,9 @@ and strips reasoning items whose ids the upstream would not know when `store` is
 
 The stack routes Muse through `claude-api-key` instead, so today every surface except Messages is a
 translation. A `meta-api-key` fragment with the same alias would make Responses the native surface
-and Messages the translated one, with nothing downstream changing until a client picks a different
-`api`.
+and Messages the translated one, with nothing downstream changing. That switch is the owner's to
+make and is not required by this stage: it upgrades citations, results, exact action types and
+reasoning counts, and changes nothing about which items a decoder has to accept.
 
 ## Plexmaton's Responses adapter, as it stands
 

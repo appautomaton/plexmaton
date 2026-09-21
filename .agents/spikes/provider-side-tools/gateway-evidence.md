@@ -128,9 +128,9 @@ transports: a streaming census of one complete search turn showed 4 `text` block
 `usage`. Whether strict cloaking strips them or Meta's Messages surface never sends them is
 unexamined; `claude_executor_cloaking.go` handles `server_tool_use` and is where to look.
 
-Meta's Responses surface documents citations and, on request, the results themselves. That route is
-not configured on this host yet. [Meta route evidence](./meta-route.md) carries it, marked
-documented rather than observed.
+Meta's Responses surface documents citations and, on request, the results themselves. Through the
+gateway's existing translation neither arrives, while the queries and encrypted reasoning do.
+[Meta route evidence](./meta-route.md) carries both the observed and the documented halves.
 
 ## Replay has no structural blocker
 
