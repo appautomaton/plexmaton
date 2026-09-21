@@ -62,6 +62,14 @@ translator flattens action types; and `output_tokens_details.reasoning_tokens` i
 Messages surface reports `thinking_tokens`. A decoder must accept an empty query rather than fail
 on it.
 
+The live dev config now runs muse on `openai_responses`, switched 2026-09-21 and verified through
+Plexmaton itself rather than curl: main's binary at `c7bdf0a`, an ephemeral conversation, muse
+chosen through `/model`, two turns. "17 times 23" answered 391 in 2.2 s; "add 9 to your previous
+answer" answered 400 in 1.0 s, so the first turn's output replayed through the gateway's
+translation and back intact; usage reported 2.1k in, 123 out; nothing on screen read as an error.
+Whether the encrypted reasoning items survived that replay is not observable from the screen and
+is untested.
+
 ## The gateway already has a native Meta route
 
 `cli-proxy-api` declares `meta-api-key` as a provider kind. `MetaKey` is a type alias of `CodexKey`,
