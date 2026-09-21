@@ -43,12 +43,14 @@ beside it, rather than leaving a second reading in the corpus.
    against. Usage stops failing a step when a provider reports non-zero hosted-tool counts, and
    accounts them instead.
 
-4. **Transcript — implemented.** The call reaches the workspace as one event in its terminal state
-   and one row in the tool row's grammar, coloured for who ran it (ui-ux §transcript grammar,
-   ENT-2). The row shows what its route returned and claims nothing further; the
-   [spike](../spikes/provider-side-tools/meta-route.md) records what each measured route gives.
-   The user chose the grammar and colour from rendered candidates and reviewed the real frames at
-   three widths on 2026-09-21.
+4. **Transcript — implemented.** The call reaches the workspace where the provider placed it, as a
+   running row that finishes once, in the tool row's grammar and coloured for who ran it (ui-ux
+   §transcript grammar, ENT-2); a reopened conversation shows the same rows in the same places, and
+   `scripts/smoke-server-tool.py` drives the burst one live gateway produced through the binary to
+   prove it. The row shows what its route returned and claims nothing further; the
+   [spike](../spikes/provider-side-tools/meta-route.md) records what each measured route gives. The
+   user chose the grammar and colour from rendered candidates and reviewed the real frames at three
+   widths on 2026-09-21.
 
 5. **Replay — implemented.** A hosted-tool item round-trips when the conversation continues, under PRV-3's
    existing sidecar rules, with its status and without its provider-assigned id, which the route in

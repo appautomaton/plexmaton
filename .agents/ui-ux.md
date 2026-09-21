@@ -514,13 +514,14 @@ full of concurrent agents stays navigable:
 - Tool call: `[ ] queued`, `[~] running`, `[?] approval required`, `[+] succeeded`, `[!] failed`,
   `[x] denied`, or `[-] cancelled`; retained invocation and outcome disclose beneath the same row
 - Server tool call: the tool row's grammar, with the tool's name after the marker and what the
-  route reported after the `·`: the query, `opened` and the page, or the pattern and the page it
-  was sought `in`, and nothing further; a search reported without a query is the name alone. The
-  marker wears the server-tool colour when the call ended well and failure's when it did not. It
-  appears finished and never transitions. What the route reported discloses beneath the row. The
-  user chose the grammar and its colour from rendered candidates on 2026-09-21. Rejected: a row
-  family of its own, which gave up the marker column and the disclosure tools already have; the
-  plain succeeded colour, which read as a tool run inside the fence
+  route reported after the `·`. It appears `[~] running` where the provider began the call and
+  finishes once: the query, `opened` and the page, or the pattern and the page it was sought `in`,
+  and nothing further; a search reported without a query is the name alone. The marker wears the
+  server-tool colour while running and when the call ended well, and failure's when it did not.
+  What the route reported discloses beneath the row. The user chose the grammar and its colour
+  from rendered candidates on 2026-09-21. Rejected: a row family of its own, which gave up the
+  marker column and the disclosure tools already have; the plain succeeded colour, which read as
+  a tool run inside the fence
 - Diff with original `+`/`-` markers, and artifact
 - Agent mail, and Main-authored task updates, each entering both conversations it names and saying
   in a word which side its row is: `sent to`, `received from`, `assigned to`, `assigned by`, naming

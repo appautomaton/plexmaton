@@ -43,6 +43,7 @@ Supply-chain and corpus lanes, selected by dependency or document changes:
 | `python3 scripts/smoke-tree.py` | Tree aliases, rewind/edit/send, original branch and selected-head restart through a real PTY; exact loopback context and no repeated command effect |
 | `python3 scripts/smoke-permissions.py` | Project trust, real command execution, a remembered prefix across restart, revoke/deny and three widths in a real PTY; eight bounded local fixture requests |
 | `python3 scripts/smoke-delegate.py` | Delegation/mail/task update, Handoff/User input, Stop/root continuation, three-width resume, CLI process cuts, and process-dead approval followed by fresh current-policy work. Acceptance evidence; binds a local fixture port, so it needs no sandbox |
+| `python3 scripts/smoke-server-tool.py` | A provider-run search placed where the provider put it, running until finished, at three widths and after reopening, against one loopback Responses burst shaped like a live gateway's; binds a local fixture port |
 | `PLEXMATON_WRITE_FRAMES=1 cargo test -p plexmaton-tui frames` | Rewrites the frames under `crates/plexmaton-tui/frames/`; the diff is the review |
 | `cargo run --release -p plexmaton-cli --bin plexmaton-measure` | What a frame costs. Reports only; its work counts are asserted by the test suite, and its timings belong to the machine that ran it ([frame-loop](../specs/frame-loop.md) FR-4) |
 

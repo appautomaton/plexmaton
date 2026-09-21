@@ -48,6 +48,12 @@ impl<'a> CurrentWork<'a> {
                 {
                     running_tool = Some(tool.label.as_str());
                 }
+                // A call the provider is still running is work in progress like any tool's.
+                TranscriptEntryView::ServerTool(view)
+                    if view.call.is_none() && running_tool.is_none() =>
+                {
+                    running_tool = Some(view.tool.name());
+                }
                 TranscriptEntryView::Text(item)
                     if item.role == TranscriptRole::Assistant && !item.finalized =>
                 {
@@ -185,6 +191,38 @@ mod tests {
     }
 
     /// The current-work label is a priority projection, not a second lifecycle.
+    /// A call the provider is running is the current work, named the way a local tool's is, and
+    /// stops being it once the provider reports what it did.
+    #[test]
+    fn a_running_server_tool_is_the_current_work() {
+        use plexmaton_core::{ServerTool, ServerToolAction, ServerToolCall, ServerToolStatus};
+        let mut searching = agent(AgentStatus::Running);
+        searching
+            .note_server_tool_started(item("search"), ServerTool::WebSearch)
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        assert_eq!(
+            CurrentWork::derive(&searching, std::iter::empty(), false),
+            Some(CurrentWork::RunningTool("web_search"))
+        );
+        searching
+            .note_server_tool(
+                item("search"),
+                1,
+                ServerToolCall {
+                    tool: ServerTool::WebSearch,
+                    action: ServerToolAction::Search {
+                        queries: Vec::new(),
+                    },
+                    status: ServerToolStatus::Completed,
+                },
+            )
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        assert_ne!(
+            CurrentWork::derive(&searching, std::iter::empty(), false),
+            Some(CurrentWork::RunningTool("web_search"))
+        );
+    }
+
     #[test]
     fn current_work_priority_is_derived_from_semantic_facts() {
         let idle = agent(AgentStatus::Idle);

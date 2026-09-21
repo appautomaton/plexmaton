@@ -6,7 +6,7 @@
 //! adapter-side. A shared event type carrying one dialect's concerns leaves every other adapter
 //! fabricating fields it does not have.
 
-use plexmaton_core::ServerToolCall;
+use plexmaton_core::{ServerTool, ServerToolCall};
 use plexmaton_core::{TokenUsage, TurnId};
 use serde::{Deserialize, Serialize};
 
@@ -129,6 +129,13 @@ pub enum ModelEvent {
     ServerToolCall {
         position: ModelOutputPosition,
         call: ServerToolCall,
+    },
+    /// The provider began a call on its own side at this position; the finished call follows at
+    /// the same position as [`Self::ServerToolCall`]. Emitted so the row appears where the provider
+    /// placed the call rather than where a route chose to finish it.
+    ServerToolStarted {
+        position: ModelOutputPosition,
+        tool: ServerTool,
     },
     /// Provider-reported token consumption retained by the runtime in an attempt terminal.
     /// Direct delivery through `Input::Streamed` is refused (TIM-3).

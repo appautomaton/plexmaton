@@ -536,6 +536,7 @@ mod tests {
                 "[+] web_search · Rust 1.98.1 release date, Rust 1.98.1 point release",
                 "[+] web_search · opened blog.rust-lang.org/releases/",
                 "[!] web_search · Rust nightly changelog · failed",
+                "[~] web_search · running",
             ] {
                 let fits = row.len() <= usize::from(width) - 2;
                 assert!(
@@ -551,7 +552,7 @@ mod tests {
                 "{name}: a search the route reported without a query is the name alone"
             );
             assert!(
-                drawn.contains(" 7 "),
+                drawn.contains(" 8 "),
                 "{name}: every call counts among the tools"
             );
             crate::test_support::assert_frame(name, &drawn);
@@ -695,6 +696,7 @@ mod tests {
                     agent_id: agent.clone(),
                     item_id: TranscriptItemId::new(name)
                         .unwrap_or_else(|error| panic!("fixture: {error}")),
+                    item_revision: 0,
                     call: ServerToolCall {
                         tool: ServerTool::WebSearch,
                         action,
@@ -703,6 +705,17 @@ mod tests {
                 },
             );
         }
+        // One the provider has begun and not yet reported.
+        apply_frame_event(
+            &mut state,
+            &mut sequence,
+            ConversationEvent::ServerToolStarted {
+                agent_id: agent.clone(),
+                item_id: TranscriptItemId::new("server-tool-running")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                tool: ServerTool::WebSearch,
+            },
+        );
         append_frame_text(
             &mut state,
             &mut sequence,

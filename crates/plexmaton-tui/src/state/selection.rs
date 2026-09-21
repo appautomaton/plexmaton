@@ -444,11 +444,12 @@ mod tests {
         let view = |action| crate::ServerToolView {
             entry_id: TranscriptItemId::new("search")
                 .unwrap_or_else(|error| panic!("fixture: {error}")),
-            call: ServerToolCall {
+            tool: ServerTool::WebSearch,
+            call: Some(ServerToolCall {
                 tool: ServerTool::WebSearch,
                 action,
                 status: ServerToolStatus::Completed,
-            },
+            }),
             revision: 0,
         };
         assert_eq!(

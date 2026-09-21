@@ -212,7 +212,7 @@ impl MessagesDecoder {
                 }
                 // This decoder produces none: Messages' server_tool_use keeps its refusal until a
                 // Messages route is in daily use to prove a decoder against (PRV-5).
-                ModelEvent::ServerToolCall { .. } => {
+                ModelEvent::ServerToolStarted { .. } | ModelEvent::ServerToolCall { .. } => {
                     return Err(DecodeError::UnsupportedEvent(
                         "messages_server_tool_call".to_owned(),
                     ));

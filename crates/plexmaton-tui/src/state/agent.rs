@@ -1,5 +1,5 @@
 use plexmaton_core::{
-    AgentId, AgentStatus, ArtifactId, MailId, ServerToolCall, TokenUsage, ToolCallId,
+    AgentId, AgentStatus, ArtifactId, MailId, ServerTool, ServerToolCall, TokenUsage, ToolCallId,
     ToolCallStatus, ToolPresentation, TranscriptItemId, TranscriptRole, TurnId,
 };
 
@@ -303,18 +303,64 @@ impl AgentView {
         )
     }
 
-    /// Files one call the provider ran, in the state it ended in. It never transitions, so a
-    /// second event for the same entry is a duplicate rather than an update (ENT-2).
-    pub(super) fn note_server_tool(
+    /// Places a call the provider began, running at revision zero (ENT-2).
+    pub(super) fn note_server_tool_started(
         &mut self,
         entry_id: TranscriptItemId,
-        call: ServerToolCall,
+        tool: ServerTool,
     ) -> Result<bool, ReduceError> {
         self.insert_terminal(
             entry_id.clone(),
             TranscriptEntryView::ServerTool(super::ServerToolView {
                 entry_id,
-                call,
+                tool,
+                call: None,
+                revision: 0,
+            }),
+        )
+    }
+
+    /// Finishes a call the provider ran. At revision one it finishes the row
+    /// [`Self::note_server_tool_started`] placed; at revision zero it is the whole entry, which is
+    /// how a reopened conversation shows it. A finished call never changes again, so a second
+    /// report is a duplicate rather than an update (ENT-2).
+    pub(super) fn note_server_tool(
+        &mut self,
+        entry_id: TranscriptItemId,
+        item_revision: u64,
+        call: ServerToolCall,
+    ) -> Result<bool, ReduceError> {
+        if let Some(entry) = self.entries.get_mut(&entry_id) {
+            let TranscriptEntryView::ServerTool(view) = entry else {
+                return Err(ReduceError::EntryKindChanged(entry_id));
+            };
+            if view.call.is_some() {
+                return Err(ReduceError::DuplicateTranscriptItem(entry_id));
+            }
+            let expected = view.revision.saturating_add(1);
+            if item_revision != expected {
+                return Err(ReduceError::ItemRevisionGap {
+                    item_id: entry_id,
+                    expected,
+                    received: item_revision,
+                });
+            }
+            if view.tool != call.tool {
+                return Err(ReduceError::ToolCorrelationChanged(entry_id));
+            }
+            view.call = Some(call);
+            view.revision = item_revision;
+            return Ok(true);
+        }
+        if item_revision != 0 {
+            return Err(ReduceError::UnknownTranscriptItem(entry_id));
+        }
+        self.insert_terminal(
+            entry_id.clone(),
+            TranscriptEntryView::ServerTool(super::ServerToolView {
+                entry_id,
+                tool: call.tool,
+                call: Some(call),
                 revision: 0,
             }),
         )

@@ -81,6 +81,8 @@ impl SummaryCollector {
             // A summary that searched is still a summary: the text is what compaction keeps, and
             // the call is recorded beside it rather than refused.
             ModelEvent::ServerToolCall { position, call } => self.server_tool_call(position, call),
+            // A summary is read once it is whole; where a call began is a live row's concern.
+            ModelEvent::ServerToolStarted { .. } => Ok(()),
             ModelEvent::Usage(_) | ModelEvent::Stopped(_) => {
                 unreachable!("the shared HTTP driver consumes accounting and terminal events")
             }

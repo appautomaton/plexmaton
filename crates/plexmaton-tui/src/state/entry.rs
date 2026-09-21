@@ -1,8 +1,8 @@
 //! Typed entries in one agent's ordered transcript projection.
 
 use plexmaton_core::{
-    AgentId, ArtifactId, MailId, ServerToolAction, ServerToolCall, ToolCallId, ToolCallStatus,
-    ToolPresentation, TranscriptItemId, TranscriptRole,
+    AgentId, ArtifactId, MailId, ServerTool, ServerToolAction, ServerToolCall, ToolCallId,
+    ToolCallStatus, ToolPresentation, TranscriptItemId, TranscriptRole,
 };
 
 use super::ReduceError;
@@ -111,15 +111,18 @@ pub struct ToolCallView {
     pub revision: u64,
 }
 
-/// One call the provider ran inside a model call, in the state it ended in.
+/// One call the provider ran inside a model call: running until the provider reports what it did.
 ///
 /// Drawn in [`ToolCallView`]'s grammar and unlike it underneath: there is no call identity of ours
-/// to correlate, no lifecycle to advance and no presentation to accumulate. What it did is the
-/// call's own action, shown as the route reported it (ENT-2).
+/// to correlate, no admission, and two states rather than seven. It appears where the provider
+/// placed the call and finishes once; a reopened conversation holds only the finished call and
+/// shows it finished from the start (ENT-2).
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ServerToolView {
     pub entry_id: TranscriptItemId,
-    pub call: ServerToolCall,
+    pub tool: ServerTool,
+    /// What the provider did and how it ended; absent while it is still running.
+    pub call: Option<ServerToolCall>,
     pub revision: u64,
 }
 
@@ -128,7 +131,7 @@ impl ServerToolView {
     /// reported nothing beyond that a call happened, which is one live route's search today.
     #[must_use]
     pub fn action_source(&self) -> Option<String> {
-        match &self.call.action {
+        match &self.call.as_ref()?.action {
             ServerToolAction::Search { queries } if queries.is_empty() => None,
             ServerToolAction::Search { queries } => Some(
                 queries

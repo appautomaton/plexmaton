@@ -70,6 +70,7 @@ jobs:
       - run: python3 scripts/smoke-input-queue.py
       - run: python3 scripts/smoke-tree.py
       - run: python3 scripts/smoke-delegate.py
+      - run: python3 scripts/smoke-server-tool.py
 
   ci:
     name: macOS Apple Silicon

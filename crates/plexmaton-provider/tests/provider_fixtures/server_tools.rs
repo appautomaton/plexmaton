@@ -44,7 +44,9 @@ async fn prv_5_a_server_tool_calls_outcome_is_typed_from_its_status() {
         assert!(result.is_ok(), "{status}: {result:?}");
         assert!(
             matches!(
-                emitted.first(),
+                emitted
+                .iter()
+                .find(|event| matches!(event, ModelEvent::ServerToolCall { .. })),
                 Some(ModelEvent::ServerToolCall { call, .. }) if call.status == expected
             ),
             "{status}: {emitted:?}"
@@ -64,7 +66,12 @@ async fn prv_5_a_server_tool_calls_outcome_is_typed_from_its_status() {
             ),
             "{status}: {result:?}"
         );
-        assert!(emitted.is_empty(), "{status}: {emitted:?}");
+        assert!(
+            emitted
+                .iter()
+                .all(|event| matches!(event, ModelEvent::ServerToolStarted { .. })),
+            "{status}: {emitted:?}"
+        );
     }
 }
 
@@ -101,7 +108,12 @@ async fn prv_5_an_unknown_server_tool_action_fails_the_step() {
         ),
         "{result:?}"
     );
-    assert!(emitted.is_empty(), "{emitted:?}");
+    assert!(
+        emitted
+            .iter()
+            .all(|event| matches!(event, ModelEvent::ServerToolStarted { .. })),
+        "nothing beyond the call's placement: {emitted:?}"
+    );
 }
 
 /// PRV-5: a finished call without an action says nothing about what the provider did.
@@ -127,7 +139,7 @@ async fn prv_5_a_search_without_a_query_is_carried_and_a_repeated_query_is_kept_
     assert!(
         matches!(
             emitted.as_slice(),
-            [ModelEvent::ServerToolCall { call, .. }, ModelEvent::Replay { .. }, ModelEvent::Usage(_), ModelEvent::Stopped(StopReason::EndOfTurn)]
+            [ModelEvent::ServerToolStarted { .. }, ModelEvent::ServerToolCall { call, .. }, ModelEvent::Replay { .. }, ModelEvent::Usage(_), ModelEvent::Stopped(StopReason::EndOfTurn)]
                 if call.action == ServerToolAction::Search { queries: Vec::new() }
         ),
         "{emitted:?}"
@@ -139,7 +151,9 @@ async fn prv_5_a_search_without_a_query_is_carried_and_a_repeated_query_is_kept_
     result.unwrap_or_else(|error| panic!("two spellings should decode: {error}"));
     assert!(
         matches!(
-            emitted.first(),
+            emitted
+                .iter()
+                .find(|event| matches!(event, ModelEvent::ServerToolCall { .. })),
             Some(ModelEvent::ServerToolCall { call, .. })
                 if call.action == ServerToolAction::Search {
                     queries: vec!["rust 1.98.1".to_owned(), "rust release".to_owned()]

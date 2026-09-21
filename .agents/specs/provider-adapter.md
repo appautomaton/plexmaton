@@ -97,14 +97,17 @@ becomes a server-tool call in the record: what the provider did, a search, an op
 within one, bounded the way tool arguments are, and how it ended, completed or failed, typed from
 the item's status; a done item that still claims to be running fails the step. The provider's own
 item identity and wire status stay replay metadata. It reaches no admission and no scheduler,
-because the call already happened inside the model call the owner authorised by declaring the
-route accepts it. An action
-kind this harness cannot name fails the step; a search that arrived with no query is carried as it
-arrived; the progress markers a route streams while searching carry nothing the finished item
-lacks and are ignored. Messages' `server_tool_use` block and a non-zero server-tool count remain
-refused until a Messages route is in daily use to prove a decoder against. Rejected: keeping the
-call as opaque replay alone, which round-trips and leaves the record unable to say a search
-happened; and a catch-all action kind, which would carry content the record cannot name.
+because the call already happened inside the model call the owner authorised by declaring the route
+accepts it. The item's first appearance on the stream places the call, so the row sits where the
+provider put it and not where a route chose to finish it: one live route finishes every search at
+the end of the stream. A call still running when the step ends is shown as failed and keeps no
+block, because there is nothing to replay. An action kind this harness cannot name fails the step; a
+search that arrived with no query is carried as it arrived; the progress markers a route streams
+while searching carry nothing the finished item lacks and are ignored. Messages' `server_tool_use`
+block and a non-zero server-tool count remain refused until a Messages route is in daily use to
+prove a decoder against. Rejected: keeping the call as opaque replay alone, which round-trips and
+leaves the record unable to say a search happened; and a catch-all action kind, which would carry
+content the record cannot name.
 
 **PRV-6 — Configuration names data, never authority.** `~/.plexmaton/config.toml` separates named
 provider routes from their named models and selects one exact provider/model pair. A route owns its

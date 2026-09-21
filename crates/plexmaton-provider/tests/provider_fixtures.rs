@@ -964,6 +964,28 @@ async fn prv_5_responses_web_search_call_is_carried_as_a_server_tool_call() {
         })
         .collect();
     assert_eq!(calls.len(), 2, "{events:?}");
+    // Each call was placed when the provider began it, before its finished item, so the row sits
+    // where the provider put the call and not where the route chose to finish it.
+    let started: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            ModelEvent::ServerToolStarted { position, .. } => Some(position.item()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(started, [1, 3], "{events:?}");
+    for item in [1, 3] {
+        let placed = events.iter().position(|event| {
+            matches!(event, ModelEvent::ServerToolStarted { position, .. } if position.item() == item)
+        });
+        let finished = events.iter().position(|event| {
+            matches!(event, ModelEvent::ServerToolCall { position, .. } if position.item() == item)
+        });
+        assert!(
+            placed < finished,
+            "item {item}: {placed:?} then {finished:?}"
+        );
+    }
     assert_eq!(calls[0].0, 1);
     assert_eq!(calls[0].1.tool, ServerTool::WebSearch);
     assert_eq!(

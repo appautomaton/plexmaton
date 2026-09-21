@@ -150,3 +150,7 @@ may rely on.
 The live dev config claimed `max` among muse's allowed efforts. It is rejected by the route, and the
 claim was removed. luna's `none` and `max`, grok's `xhigh` and deepseek's `none` were each probed
 and are honest.
+
+Measured again 2026-09-21 through the branch binary and a direct stream: every `web_search_call`
+arrived as `search` with an empty `query`; every `done` came after the last message finished, while
+each `added` came at its true position, which is why the row is placed at `added`.

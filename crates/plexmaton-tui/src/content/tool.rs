@@ -44,15 +44,27 @@ pub(super) fn prepared_entry(tool: &ToolCallView, appearance: EntryAppearance) -
 /// already have; and the plain succeeded colour, which read as a tool this harness ran inside the
 /// fence. The user chose the grammar and the colour on 2026-09-21 from rendered candidates.
 pub(super) fn prepared_server_tool(view: &ServerToolView, appearance: EntryAppearance) -> Vec<Row> {
-    let (status, role) = match view.call.status {
+    let Some(call) = &view.call else {
+        // Placed where the provider began the call, and still running: the tool row's word for
+        // it, in the colour that says whose work it is.
+        let running = ToolCallStatus::Running;
+        let mut compact = Line::from(vec![
+            Span::styled(format!("{} ", marker(running)), Role::ServerTool),
+            Span::styled(view.tool.name().to_owned(), Role::Body),
+            Span::styled(format!(" · {}", status_label(running)), Role::ServerTool),
+        ]);
+        compact.treatment = Treatment::EntryHeading;
+        return vec![Row::heading(compact)];
+    };
+    let (status, role) = match call.status {
         ServerToolStatus::Completed => (ToolCallStatus::Succeeded, Role::ServerTool),
         ServerToolStatus::Failed => (ToolCallStatus::Failed, Role::Failure),
     };
     let mut spans = vec![
         Span::styled(format!("{} ", marker(status)), role),
-        Span::styled(view.call.tool.name().to_owned(), Role::Body),
+        Span::styled(view.tool.name().to_owned(), Role::Body),
     ];
-    match &view.call.action {
+    match &call.action {
         ServerToolAction::Search { queries } if queries.is_empty() => {}
         ServerToolAction::Search { queries } => {
             spans.push(Span::styled(" · ", role));
@@ -176,13 +188,47 @@ mod tests {
         ServerToolView {
             entry_id: TranscriptItemId::new("search")
                 .unwrap_or_else(|error| panic!("fixture: {error}")),
-            call: ServerToolCall {
+            tool: ServerTool::WebSearch,
+            call: Some(ServerToolCall {
                 tool: ServerTool::WebSearch,
                 action,
                 status,
-            },
+            }),
             revision: 0,
         }
+    }
+
+    /// ENT-2: a call the provider has begun is one running row in the tool grammar, in the colour
+    /// that says whose work it is, with nothing to disclose yet.
+    #[test]
+    fn a_running_server_tool_row_is_named_and_wears_the_server_tool_colour() {
+        let palette = Palette::pastel();
+        let running = ServerToolView {
+            entry_id: TranscriptItemId::new("search")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            tool: ServerTool::WebSearch,
+            call: None,
+            revision: 0,
+        };
+        let open = EntryAppearance {
+            selected: false,
+            open: true,
+            hovered: false,
+            copy_hovered: false,
+        };
+        assert_eq!(
+            server_entry(&running, &palette, EntryAppearance::compact(false)),
+            ["[~] web_search · running"]
+        );
+        assert_eq!(
+            server_entry(&running, &palette, open),
+            ["[~] web_search · running"]
+        );
+        assert_eq!(
+            marker_colour(&running, &palette),
+            palette.style(Role::ServerTool).fg
+        );
+        assert_eq!(running.action_source(), None);
     }
 
     fn server_entry(

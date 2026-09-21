@@ -62,6 +62,7 @@ impl ConversationEvent {
             | Self::TranscriptDelta { agent_id, .. }
             | Self::TranscriptItemFinalized { agent_id, .. }
             | Self::ToolCallChanged { agent_id, .. }
+            | Self::ServerToolStarted { agent_id, .. }
             | Self::ServerToolCalled { agent_id, .. }
             | Self::AttentionRequested { agent_id, .. }
             | Self::AttentionResolved { agent_id, .. }
@@ -377,15 +378,30 @@ pub enum ConversationEvent {
         /// Bounded semantic detail used by open and copy presentations.
         presentation: ToolPresentation,
     },
-    /// A tool the provider ran on its own side inside one model call, reported once it ended.
+    /// The provider began running a tool on its own side inside one model call.
     ///
-    /// Nothing here was queued, admitted or dispatched, so the entry appears in its terminal state
-    /// and never transitions. It says what the route reported and claims nothing further.
+    /// Nothing here was queued, admitted or dispatched: the row appears running where the provider
+    /// placed the call, and [`Self::ServerToolCalled`] finishes it at the next revision.
+    ServerToolStarted {
+        /// Agent whose model call the provider is running the tool inside.
+        agent_id: AgentId,
+        /// Transcript position assigned when the call was first reported.
+        item_id: TranscriptItemId,
+        /// The tool the provider began running.
+        tool: ServerTool,
+    },
+    /// A tool the provider ran on its own side ended, and this is what it did.
+    ///
+    /// At revision one it finishes the entry [`Self::ServerToolStarted`] opened; at revision zero
+    /// it is the whole entry, which is how a reopened conversation, holding only the finished
+    /// call, shows it. It says what the route reported and claims nothing further.
     ServerToolCalled {
         /// Agent whose model call the provider ran the tool inside.
         agent_id: AgentId,
-        /// Transcript position assigned when the call was reported.
+        /// Transcript position the call holds.
         item_id: TranscriptItemId,
+        /// Zero for a first appearance, one when it finishes a call that appeared running.
+        item_revision: u64,
         /// The tool, what it did with it, and how it ended.
         call: ServerToolCall,
     },
@@ -513,6 +529,10 @@ mod tests {
         AgentId::new(value).unwrap_or_else(|error| panic!("invalid fixture: {error}"))
     }
 
+    fn item_id(value: &str) -> TranscriptItemId {
+        TranscriptItemId::new(value).unwrap_or_else(|error| panic!("invalid fixture: {error}"))
+    }
+
     #[test]
     fn stable_id_rejects_whitespace() {
         assert_eq!(
@@ -605,10 +625,15 @@ mod tests {
                     }),
                 },
             },
+            ConversationEvent::ServerToolStarted {
+                agent_id: agent("agent-a"),
+                item_id: item_id("item-search-1"),
+                tool: ServerTool::WebSearch,
+            },
             ConversationEvent::ServerToolCalled {
                 agent_id: agent("agent-a"),
-                item_id: TranscriptItemId::new("item-search-1")
-                    .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+                item_id: item_id("item-search-1"),
+                item_revision: 1,
                 call: ServerToolCall {
                     tool: ServerTool::WebSearch,
                     action: ServerToolAction::FindInPage {

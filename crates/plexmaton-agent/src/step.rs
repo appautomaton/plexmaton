@@ -1,6 +1,6 @@
 //! One model step's ordered, bounded output assembly.
 
-use plexmaton_core::ServerToolCall;
+use plexmaton_core::{ServerTool, ServerToolAction, ServerToolCall, ServerToolStatus};
 use std::collections::{BTreeMap, btree_map::Entry};
 
 use plexmaton_core::{ConversationEvent, TranscriptItemId, TranscriptRole, TurnId};
@@ -41,6 +41,10 @@ enum PendingOutput {
     ServerToolCall {
         item_id: TranscriptItemId,
         call: ServerToolCall,
+    },
+    ServerToolStarted {
+        item_id: TranscriptItemId,
+        tool: ServerTool,
     },
 }
 
@@ -253,9 +257,53 @@ impl Step {
         }
     }
 
+    /// Places a call the provider has begun. The row appears running where the provider put the
+    /// call, so a route that finishes every call at the end of the stream cannot move it there;
+    /// [`Self::note_server_tool`] finishes it at the next revision.
+    pub(crate) fn note_server_tool_started(
+        &mut self,
+        record: &mut Record,
+        reaction: &mut Reaction,
+        position: ModelOutputPosition,
+        tool: ServerTool,
+    ) -> Result<(), StepAssemblyError> {
+        self.reserve_output_position(position)?;
+        let item_id = Record::stream_item_id(
+            &self.turn_id,
+            self.index,
+            TranscriptRole::Assistant,
+            position,
+        );
+        let pending = PendingOutput::ServerToolStarted {
+            item_id: item_id.clone(),
+            tool,
+        };
+        match self.outputs.entry(position) {
+            Entry::Vacant(entry) => {
+                entry.insert(pending);
+            }
+            Entry::Occupied(mut entry)
+                if matches!(entry.get(), PendingOutput::ReplayOnly { .. }) =>
+            {
+                entry.insert(pending);
+            }
+            Entry::Occupied(_) => return Err(StepAssemblyError::ConflictingPosition),
+        }
+        record.emit(
+            reaction,
+            ConversationEvent::ServerToolStarted {
+                agent_id: record.agent_id().clone(),
+                item_id,
+                tool,
+            },
+        );
+        Ok(())
+    }
+
     /// Records a call the provider already ran. It takes no call identity of ours and joins no
     /// batch: nothing here will be dispatched, so nothing here can be reused or left undone. The
-    /// workspace hears of it now, as one event in its terminal state, the way replay will say it.
+    /// workspace hears of it now, finishing the running row when one was placed and otherwise as
+    /// the whole entry, which is how replay will say it.
     pub(crate) fn note_server_tool(
         &mut self,
         record: &mut Record,
@@ -283,25 +331,33 @@ impl Step {
             item_id: item_id.clone(),
             call: call.clone(),
         };
-        match self.outputs.entry(position) {
+        let item_revision = match self.outputs.entry(position) {
             Entry::Vacant(entry) => {
                 entry.insert(pending);
+                0
             }
-            // The adapter's replay for the same item may have landed first and reserved the
-            // position as replay-only; the call it belongs to takes the position over.
-            Entry::Occupied(mut entry)
-                if matches!(entry.get(), PendingOutput::ReplayOnly { .. }) =>
-            {
-                entry.insert(pending);
-            }
-            Entry::Occupied(_) => return Err(StepAssemblyError::ConflictingPosition),
-        }
+            Entry::Occupied(mut entry) => match entry.get() {
+                // The adapter's replay for the same item may have landed first and reserved the
+                // position as replay-only; the call it belongs to takes the position over.
+                PendingOutput::ReplayOnly { .. } => {
+                    entry.insert(pending);
+                    0
+                }
+                // The call was placed when it began; this finishes that row.
+                PendingOutput::ServerToolStarted { tool, .. } if *tool == call.tool => {
+                    entry.insert(pending);
+                    1
+                }
+                _ => return Err(StepAssemblyError::ConflictingPosition),
+            },
+        };
         self.tool_argument_bytes = tool_argument_bytes;
         record.emit(
             reaction,
             ConversationEvent::ServerToolCalled {
                 agent_id: record.agent_id().clone(),
                 item_id,
+                item_revision,
                 call,
             },
         );
@@ -397,6 +453,27 @@ impl Step {
                 }
                 PendingOutput::ServerToolCall { item_id, call } => {
                     AssistantBlock::ServerToolCall { item_id, call }
+                }
+                // The step ended with the call still running, so it did not finish: the row says
+                // so, and the record keeps no block, because there is nothing to replay. The tool
+                // is web search, so a search it is; the route reported no query.
+                PendingOutput::ServerToolStarted { item_id, tool } => {
+                    record.emit(
+                        reaction,
+                        ConversationEvent::ServerToolCalled {
+                            agent_id: record.agent_id().clone(),
+                            item_id,
+                            item_revision: 1,
+                            call: ServerToolCall {
+                                tool,
+                                action: ServerToolAction::Search {
+                                    queries: Vec::new(),
+                                },
+                                status: ServerToolStatus::Failed,
+                            },
+                        },
+                    );
+                    continue;
                 }
             };
             let block_index = u16::try_from(blocks.len())

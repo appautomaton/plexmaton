@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use plexmaton_agent::{ModelEvent, ReplayCompatibility, StopReason};
-use plexmaton_core::ToolCallId;
+use plexmaton_core::{ServerTool, ToolCallId};
 use serde_json::Value;
 
 use super::call::CallAssembly;
@@ -87,10 +87,7 @@ impl ResponsesDecoder {
             "response.output_text.done" => self.text_done(&event, "text", false),
             "response.refusal.delta" => self.text_delta(&event, true),
             "response.refusal.done" => self.text_done(&event, "refusal", true),
-            "response.output_item.added" => {
-                self.output_item_added(&event)?;
-                Ok(Vec::new())
-            }
+            "response.output_item.added" => self.output_item_added(&event),
             "response.function_call_arguments.delta" => {
                 self.arguments_delta(&event)?;
                 Ok(Vec::new())
@@ -188,7 +185,7 @@ impl ResponsesDecoder {
         Ok(Vec::new())
     }
 
-    fn output_item_added(&mut self, event: &Value) -> Result<(), DecodeError> {
+    fn output_item_added(&mut self, event: &Value) -> Result<Vec<ModelEvent>, DecodeError> {
         let index = usize_field(event, "output_index")?;
         let item = object_field(event, "item")?;
         match string_field(item, "type")? {
@@ -202,9 +199,17 @@ impl ResponsesDecoder {
                     index,
                     limits,
                 )?;
-                call.seed_arguments(optional_string(item, "arguments"), index, limits)
+                call.seed_arguments(optional_string(item, "arguments"), index, limits)?;
+                Ok(Vec::new())
             }
-            "reasoning" | "message" | "web_search_call" => Ok(()),
+            // The item's first appearance is where the provider placed the call. One live route
+            // finishes every search at the end of the stream, so the finished item alone would
+            // put each row after the answer it informed (PRV-5).
+            "web_search_call" => Ok(vec![ModelEvent::ServerToolStarted {
+                position: output_position(index, 0)?,
+                tool: ServerTool::WebSearch,
+            }]),
+            "reasoning" | "message" => Ok(Vec::new()),
             other => Err(DecodeError::UnsupportedEvent(format!(
                 "response.output_item.added:{other}"
             ))),

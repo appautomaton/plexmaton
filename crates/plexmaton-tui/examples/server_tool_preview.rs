@@ -145,6 +145,7 @@ fn fixture() -> Result<Workspace> {
         events.push(ConversationEvent::ServerToolCalled {
             agent_id: agent.clone(),
             item_id: TranscriptItemId::new(name)?,
+            item_revision: 0,
             call: ServerToolCall {
                 tool: ServerTool::WebSearch,
                 action,
@@ -152,6 +153,11 @@ fn fixture() -> Result<Workspace> {
             },
         });
     }
+    events.push(ConversationEvent::ServerToolStarted {
+        agent_id: agent.clone(),
+        item_id: TranscriptItemId::new("running")?,
+        tool: ServerTool::WebSearch,
+    });
     text(
         &mut events,
         &agent,

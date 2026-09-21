@@ -161,13 +161,9 @@ impl ViewState {
                 agent_id,
                 item_id,
                 role,
-            } => {
-                self.validate_entry_owner(&agent_id, &item_id)?;
-                self.agent_mut(&agent_id)?
-                    .start_item(item_id.clone(), role)?;
-                self.remember_entry_owner(item_id, agent_id);
-                true
-            }
+            } => self.apply_entry(agent_id, item_id, |agent, item_id| {
+                agent.start_item(item_id, role).map(|_| true)
+            })?,
             ConversationEvent::TranscriptDelta {
                 agent_id,
                 item_id,
@@ -200,12 +196,20 @@ impl ViewState {
             } => self.apply_entry(agent_id, item_id, |agent, item_id| {
                 agent.set_tool_entry(item_id, item_revision, call_id, label, status, presentation)
             })?,
+            ConversationEvent::ServerToolStarted {
+                agent_id,
+                item_id,
+                tool,
+            } => self.apply_entry(agent_id, item_id, |agent, item_id| {
+                agent.note_server_tool_started(item_id, tool)
+            })?,
             ConversationEvent::ServerToolCalled {
                 agent_id,
                 item_id,
+                item_revision,
                 call,
             } => self.apply_entry(agent_id, item_id, |agent, item_id| {
-                agent.note_server_tool(item_id, call)
+                agent.note_server_tool(item_id, item_revision, call)
             })?,
             ConversationEvent::AttentionRequested {
                 agent_id,
@@ -535,10 +539,28 @@ mod tests {
         }
     }
 
+    fn server_tool_started_event(agent: &AgentId, entry: &str) -> ConversationEvent {
+        ConversationEvent::ServerToolStarted {
+            agent_id: agent.clone(),
+            item_id: item_id(entry),
+            tool: plexmaton_core::ServerTool::WebSearch,
+        }
+    }
+
     fn server_tool_event(agent: &AgentId, entry: &str, queries: &[&str]) -> ConversationEvent {
+        server_tool_finished(agent, entry, 0, queries)
+    }
+
+    fn server_tool_finished(
+        agent: &AgentId,
+        entry: &str,
+        item_revision: u64,
+        queries: &[&str],
+    ) -> ConversationEvent {
         ConversationEvent::ServerToolCalled {
             agent_id: agent.clone(),
             item_id: item_id(entry),
+            item_revision,
             call: plexmaton_core::ServerToolCall {
                 tool: plexmaton_core::ServerTool::WebSearch,
                 action: plexmaton_core::ServerToolAction::Search {
@@ -549,10 +571,84 @@ mod tests {
         }
     }
 
-    /// ENT-2: a call the provider ran appears once, finished, and a second report of the same entry
-    /// is a duplicate the notice log keeps, never an update to the row.
+    /// ENT-2: a call the provider began appears running at revision zero and finishes once at
+    /// revision one; a second finish is a duplicate the notice log keeps, never an update.
     #[test]
-    fn a_server_tool_call_appears_finished_and_never_transitions() {
+    fn a_server_tool_call_runs_at_revision_zero_and_finishes_once() {
+        let mut state = ViewState::default();
+        let agent = agent_id("agent-a");
+        state.apply(envelope(1, created("agent-a")));
+        assert_eq!(
+            state.apply(envelope(2, server_tool_started_event(&agent, "search"))),
+            ApplyOutcome::Accepted
+        );
+        let running: Vec<_> = state
+            .primary_agent()
+            .unwrap_or_else(|| panic!("agent was projected"))
+            .entries()
+            .cloned()
+            .collect();
+        assert!(
+            matches!(
+                running.as_slice(),
+                [TranscriptEntryView::ServerTool(view)] if view.call.is_none() && view.revision == 0
+            ),
+            "{running:?}"
+        );
+        let gap = state.apply(envelope(
+            3,
+            server_tool_finished(&agent, "search", 2, &["rust"]),
+        ));
+        assert!(
+            matches!(
+                gap,
+                ApplyOutcome::Rejected(ReduceError::ItemRevisionGap {
+                    expected: 1,
+                    received: 2,
+                    ..
+                })
+            ),
+            "{gap:?}"
+        );
+        assert_eq!(
+            state.apply(envelope(
+                4,
+                server_tool_finished(&agent, "search", 1, &["rust"])
+            )),
+            ApplyOutcome::Accepted
+        );
+        let again = state.apply(envelope(
+            5,
+            server_tool_finished(&agent, "search", 2, &["again"]),
+        ));
+        assert!(
+            matches!(
+                again,
+                ApplyOutcome::Rejected(ReduceError::DuplicateTranscriptItem(ref item)) if item == &item_id("search")
+            ),
+            "{again:?}"
+        );
+        let entries: Vec<_> = state
+            .primary_agent()
+            .unwrap_or_else(|| panic!("agent was projected"))
+            .entries()
+            .collect();
+        assert!(
+            matches!(
+                entries.as_slice(),
+                [TranscriptEntryView::ServerTool(view)]
+                    if view.revision == 1
+                        && view.call.as_ref().map(|call| &call.action)
+                            == Some(&plexmaton_core::ServerToolAction::Search { queries: vec!["rust".to_owned()] })
+            ),
+            "{entries:?}"
+        );
+    }
+
+    /// ENT-2: a reopened conversation holds only the finished call, which appears finished at
+    /// revision zero; it too finishes once.
+    #[test]
+    fn a_reopened_server_tool_call_appears_finished_at_revision_zero() {
         let mut state = ViewState::default();
         let agent = agent_id("agent-a");
         state.apply(envelope(1, created("agent-a")));
@@ -568,19 +664,16 @@ mod tests {
             ),
             "{outcome:?}"
         );
-        let entries: Vec<_> = state
-            .primary_agent()
-            .unwrap_or_else(|| panic!("agent was projected"))
-            .entries()
-            .collect();
+        let unplaced = state.apply(envelope(
+            4,
+            server_tool_finished(&agent, "other", 1, &["x"]),
+        ));
         assert!(
             matches!(
-                entries.as_slice(),
-                [TranscriptEntryView::ServerTool(view)]
-                    if view.revision == 0
-                        && view.call.action == plexmaton_core::ServerToolAction::Search { queries: vec!["rust".to_owned()] }
+                unplaced,
+                ApplyOutcome::Rejected(ReduceError::UnknownTranscriptItem(_))
             ),
-            "{entries:?}"
+            "{unplaced:?}"
         );
     }
 

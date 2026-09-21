@@ -71,6 +71,9 @@ def asked(body):
 class LoopbackProvider:
     """One owned server thread; fixed replies, bounded requests, no outbound connection."""
 
+    # The dialect a journey speaks; a Responses journey sets the other endpoint before entering.
+    endpoint = "/v1/chat/completions"
+
     def __init__(self, responses):
         assert 0 < len(responses) <= MAX_RESPONSES
         assert all(len(self.payload(entry)) <= MAX_REQUEST_BYTES for entry in responses)
@@ -100,7 +103,7 @@ class LoopbackProvider:
 
             def do_POST(self):
                 try:
-                    assert self.path == "/v1/chat/completions", "unexpected endpoint"
+                    assert self.path == owner.endpoint, "unexpected endpoint"
                     assert self.headers.get("Authorization") == "Bearer fixture-only", "unexpected credential"
                     assert not self.headers.get("Transfer-Encoding"), "chunked request refused"
                     count = int(self.headers.get("Content-Length", "0"))

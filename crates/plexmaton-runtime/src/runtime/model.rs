@@ -41,6 +41,7 @@ impl ModelOutput {
             }
             ModelEvent::Replay { .. }
             | ModelEvent::Called { .. }
+            | ModelEvent::ServerToolStarted { .. }
             | ModelEvent::ServerToolCall { .. } => true,
             ModelEvent::Usage(_) | ModelEvent::Stopped(_) => {
                 unreachable!("ModelOutput excludes terminal and accounting events")
