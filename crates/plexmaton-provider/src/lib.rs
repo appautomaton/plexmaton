@@ -31,7 +31,8 @@ pub use compaction::{
 };
 pub use config::{
     ApiKey, ConfigError, MAX_WORKSPACE_INSTRUCTION_BYTES, ModelApi, ModelCost, ModelRegistry,
-    ModelSelection, PromptCache, ResolvedModel, TokenEstimator, resolve_api_key, resolve_home,
+    ModelSelection, PromptCache, ResolvedModel, ServerTool, TokenEstimator, resolve_api_key,
+    resolve_home,
 };
 pub use cost::request_cost;
 pub use degrade::degrades_replay;

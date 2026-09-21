@@ -5,7 +5,7 @@
 | Phase | [Phase 04](../phases/phase-04-product-polish.md) stage 33 |
 | Contract | PRV-1/PRV-3/PRV-5/PRV-6, [tool-admission](../specs/tool-admission.md), [ui-ux](../ui-ux.md) transcript grammar |
 | Evidence | [Provider-side tools spike](../spikes/provider-side-tools/README.md) |
-| Status | Sliced; route decided as Responses; no slice implemented |
+| Status | Slice 1 implemented and locally verified; slices 2–6 open |
 
 ## Outcome
 
@@ -20,7 +20,7 @@ beside it, rather than leaving a second reading in the corpus.
 
 ## Slices
 
-1. **Declaration.** A model entry gains a hosted-tool subset, validated the way
+1. **Declaration — implemented.** A model entry gains a hosted-tool subset, validated the way
    `allowed_reasoning_efforts` already is: present or absent, nonempty and unique when present, and
    encodable by that model's dialect. A declaration a dialect cannot spell fails at config load,
    before any network work. PRV-6 gains the field; nothing infers it from a provider or model name.

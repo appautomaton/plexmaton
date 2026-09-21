@@ -37,6 +37,21 @@ impl ModelApi {
         }
     }
 
+    /// Whether this dialect has a wire spelling for a hosted tool (PRV-6).
+    ///
+    /// A declaration must fail at config load, because a route that accepts a spelling it does
+    /// not understand may ignore it without saying so. GenerateContent has a `google_search`
+    /// tool that no route here has been measured with, so it is refused rather than guessed.
+    pub(crate) const fn spells_server_tool(self, tool: ServerTool) -> bool {
+        match (self, tool) {
+            (
+                Self::OpenaiResponses | Self::OpenaiChatCompletions | Self::AnthropicMessages,
+                ServerTool::WebSearch,
+            ) => true,
+            (Self::GoogleGenerateContent, ServerTool::WebSearch) => false,
+        }
+    }
+
     /// Whether this dialect can carry a collaboration atom at all (PRV-1).
     ///
     /// All four can, because all four have a turn that is not the assistant's, which is where an
@@ -50,6 +65,17 @@ impl ModelApi {
             | Self::GoogleGenerateContent => true,
         }
     }
+}
+
+/// One tool the provider runs on its own side, inside the model call the owner already authorised.
+///
+/// Configuration names the capability and the selected dialect owns its spelling (PRV-6). Nothing
+/// infers a declaration from a provider or model name: that would put authority in a name, which
+/// is what PRV-6 exists to refuse.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ServerTool {
+    WebSearch,
 }
 
 /// Explicit cache intent; no provider cache retention is promised by this setting.
@@ -185,6 +211,7 @@ struct RawModel {
     #[serde(default)]
     reasoning_effort: ReasoningEffort,
     allowed_reasoning_efforts: Option<Vec<ReasoningEffort>>,
+    server_tools: Option<Vec<ServerTool>>,
     #[serde(default)]
     instructions: String,
     #[serde(default)]
