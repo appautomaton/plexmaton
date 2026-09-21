@@ -41,9 +41,10 @@ beside it, rather than leaving a second reading in the corpus.
    reports non-zero hosted-tool counts, and accounts them instead.
 
 4. **Transcript.** The event reaches the workspace as a row naming what was searched or opened.
-   Findings are not part of this: neither dialect returns them, so the row says what the provider
-   did and the model's own answer says what it concluded. Three widths reviewed before the slice
-   closes.
+   What else the row can show is the route's to give: Messages as observed returns the queries
+   alone, and Meta's Responses surface documents `url_citation` annotations and, when asked,
+   the results. The row shows what its route returned and claims nothing further. Three widths
+   reviewed before the slice closes.
 
 5. **Replay.** The blocks round-trip when the conversation continues, under PRV-3's existing
    sidecar rules. The local route accepts a turn with them present or stripped, so the arm this
@@ -74,6 +75,6 @@ that needs two turns, and because the arm it picks is informed by what the row h
 Running any search locally. A client tool that issues its own isolated model request, which is pi's
 shape and would need tools to reach a provider route. Hosted tools other than search: the local
 gateway refuses `web_fetch`, `code_interpreter` and `file_search` on both dialects, so a second tool
-has no route to be tested against. Recovering search findings, which neither dialect returns.
+has no route to be tested against. Recovering findings a route does not return; the Messages route as observed returns none.
 Per-call approval, because the fence position already holds that configuring a provider authorises
 the call this rides on.

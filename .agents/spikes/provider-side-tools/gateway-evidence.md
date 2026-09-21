@@ -120,22 +120,17 @@ dropped. Reasoning reaches `reasoning_content` only from `thinking_delta`, and M
 request branch and one missing response branch, and the second has no OpenAI-standard shape to
 fill it with: `annotations[].url_citation` needs URLs, and the route never returns any.
 
-## The results never arrive
+## Findings are a property of the surface
 
-**The gateway forwards the queries and never the findings.** Verified on both transports.
+**On the Messages route the gateway forwards the queries and never the findings.** Verified on both
+transports: a streaming census of one complete search turn showed 4 `text` blocks, 3
+`server_tool_use` blocks, zero `web_search_tool_result` blocks, and no `server_tool_use` counter in
+`usage`. Whether strict cloaking strips them or Meta's Messages surface never sends them is
+unexamined; `claude_executor_cloaking.go` handles `server_tool_use` and is where to look.
 
-A streaming census of one complete search turn: 4 `text` blocks, 3 `server_tool_use` blocks,
-**zero** `web_search_tool_result` blocks, and no `server_tool_use` counter in `usage`.
-
-So a transcript built from this route can show what was searched and what the model concluded, and
-never the sources. Codex reaches the same place from a different vendor: its inline
-`WebSearchCall` path sets `results: None` because the Responses call returns the query alone. The
-hole looks like the shape of inline hosted search rather than a local defect, which is the reason
-the spike should not design around recovering results.
-
-Unexamined: whether the gateway's strict cloaking strips them.
-`upstream/cli-proxy-api/internal/runtime/executor/claude_executor_cloaking.go` handles
-`server_tool_use` and is where to look.
+Meta's Responses surface documents citations and, on request, the results themselves. That route is
+not configured on this host yet. [Meta route evidence](./meta-route.md) carries it, marked
+documented rather than observed.
 
 ## Replay has no structural blocker
 
