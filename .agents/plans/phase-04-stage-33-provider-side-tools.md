@@ -27,9 +27,12 @@ beside it, rather than leaving a second reading in the corpus.
 
 2. **Request encoding.** Each dialect spells the declared capability and owns that spelling alone.
    Messages emits `{"type":"web_search_20250305","name":"web_search"}`; Responses emits
-   `{"type":"web_search"}`. Chat Completions and GenerateContent cannot encode it, which is what
-   makes slice 1's validation a real gate rather than a formality. No request carries a hosted tool
-   the model did not declare.
+   `{"type":"web_search"}`; Chat Completions emits `web_search_options`, the field OpenAI's own
+   search models take; GenerateContent's `google_search` tool is spelled once its facade has been
+   measured. Slice 1's gate is the tool name, not the dialect: a declared tool a dialect has no
+   spelling for fails at config load. A spelling the route then ignores is the owner's declaration
+   being wrong, and on Chat Completions the wire does not say so, which is why a declaration is
+   verified once rather than trusted. No request carries a hosted tool the model did not declare.
 
 3. **Decode.** The Messages decoder accepts `server_tool_use` as a fifth content block and the
    Responses decoder accepts a `web_search_call` output item, both carrying the action the provider

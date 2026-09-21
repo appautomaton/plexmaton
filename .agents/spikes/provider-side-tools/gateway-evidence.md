@@ -110,6 +110,16 @@ count in `usage`. Over Messages the same model returns `redacted_thinking` block
 `thinking_tokens` count. So on this gateway Muse's reasoning is reachable through Messages as
 opaque replay, and through Chat Completions not at all.
 
+The mechanism is in the gateway's translator, read at upstream snapshot v7.3.9. Toward Claude,
+`claude_openai_request.go:349` translates only `tools[].type == "function"` and skips every other
+type without an error; nothing in the gateway reads `web_search_options`. Back toward OpenAI, the
+block switch in `claude_openai_response.go:146` and `:378` has branches for `tool_use` and
+`thinking` and none for `server_tool_use` or `redacted_thinking`, so both fall through and are
+dropped. Reasoning reaches `reasoning_content` only from `thinking_delta`, and Muse sends
+`redacted_thinking`, which has `data` and no delta. So the Chat facade's two holes are one missing
+request branch and one missing response branch, and the second has no OpenAI-standard shape to
+fill it with: `annotations[].url_citation` needs URLs, and the route never returns any.
+
 ## The results never arrive
 
 **The gateway forwards the queries and never the findings.** Verified on both transports.
