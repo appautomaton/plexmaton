@@ -16,7 +16,7 @@ generators are in [`mockups/`](./mockups/); each writes one HTML page to
 | Surface | Chosen | Rejected on sight |
 | --- | --- | --- |
 | Activity line composition | mark, label, muted `· 32s · high effort`, `· quiet for 31s` once nothing has arrived; no token count | a red stall tell; estimated tokens |
-| Activity mark | the outline morph: ring grows, rounds into the frame, frame sharpens (`◦ ○ ◯ ▢ □ ◻`). Drawn with Unicode geometric shapes (C2′, 12 frames; C2″, 8) or the Nerd Font's Material Design outlines (N2): the user decides once their terminal font settles | filled squares, which the font draws as rectangles; braille; quarter circles; Claude Code's star |
+| Activity mark | N2, the Nerd Font's circle, rounded square and square, outline then filled: chosen 2026-09-22 in a kitty window beside the Unicode cycles; the user asked for the filled half to keep it simple yet ever changing | C2′ and C2″, which shook in the user's terminal because mixed-size Unicode shapes centre differently; filled squares; braille; quarter circles; Claude Code's star |
 | User message | band of lifted ground with a blue `›`, continuation indented | the accent bar; a bare prefix; a hairline bar; a band alone |
 | Mark placement | centred in the empty conversation, name beneath, gone with the first message | a header or drawer slot, not yet asked for |
 | Mark motion | K4 as the base: frame breathes between weights and drifts between palette slots; centre morphs circle, ring, rounded square, square, solid and outline | K1 to K3 as they stood |

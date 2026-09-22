@@ -10,6 +10,23 @@ fn open(
     current: Effort,
 ) -> (Workspace, Terminal<ratatui::backend::TestBackend>) {
     let (mut workspace, mut terminal) = setup(width);
+    // The primary agent rests, so the effort rail is the only thing on screen that moves.
+    workspace.emit(vec![ConversationEventEnvelope {
+        sequence: plexmaton_core::EventSequence::new(
+            crate::test_support::canonical_runtime()
+                .ready(u64::MAX)
+                .last()
+                .map_or(1, |envelope| envelope.sequence.get() + 1),
+        ),
+        event: plexmaton_core::ConversationEvent::AgentStatusChanged {
+            agent_id: AgentId::new("agent-a").expect("primary"),
+            status: plexmaton_core::AgentStatus::Idle,
+        },
+    }]);
+    assert!(
+        !workspace.state.activity_moves(),
+        "the fixture's primary agent rests"
+    );
     let mut model = crate::test_support::configuration_summary();
     model.reasoning_effort = current;
     workspace.set_model(model);

@@ -33,7 +33,7 @@
 │                                                                                             │
 │received from Agent B · UI study · Routing stays centralized and z-ordered.                  │
 │[!] skill · failed                                                                           │
-│· Thinking…                                                                           ( !1 ) │
+│󰝦 Thinking…                                                                           ( !1 ) │
 ── Message ────────────────────────────────────────────────────────────────────────────────────
  $review check this change                                                                     
 ───────────────────────────────────────────────────────────────────────────────────────────────

@@ -2,10 +2,10 @@
 
 | Field | Value |
 | --- | --- |
-| Status | MOT-1 and MOT-3 implemented for the effort rail; MOT-2 unproven until the activity line moves |
+| Status | Implemented for the effort rail and the activity line's mark |
 | Owns | When anything in the workspace moves, what a moving frame may change, and the one clock it runs on |
 | Depends on | FR-1 and FR-3 in [frame-loop](./frame-loop.md); EFF-4 in [reasoning-effort](./reasoning-effort.md) as the first thing that moves |
-| Proven by | `plexmaton-tui::workspace` effort tests below |
+| Proven by | `plexmaton-tui::workspace` effort tests and `plexmaton-tui::render` activity-mark tests |
 
 ## Invariants
 
@@ -17,8 +17,7 @@ phase and counts the next tick from itself, queuing no missed frames. Rejected: 
 thing, which is how the effort rail began and would have given the activity line a second one.
 
 **MOT-2 — A motion frame is one cell.** Every glyph in a motion sequence has display width one, and
-a test proves it for each sequence, so a frame can never widen or reflow a row. Unproven: the
-effort markers are checked; no other sequence exists yet.
+a test proves it for each sequence, so a frame can never widen or reflow a row.
 
 **MOT-3 — Motion changes presentation only.** A phase change invalidates the painted frame and never
 the semantic revision or layout (FR-1), so replaying a journal reproduces the same rows whatever the
@@ -27,4 +26,5 @@ clock was doing.
 ## Grammar
 
 The phase is a count, not a time: renderers derive their frame from it, so two moving things on
-screen stay in step. The effort rail's marker completes a cycle every 1.6 s (EFF-4).
+screen stay in step. The effort rail's marker and the activity line's mark each complete a cycle every
+1.6 s, the mark at three phases a frame over eight frames.

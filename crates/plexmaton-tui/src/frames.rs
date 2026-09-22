@@ -184,7 +184,7 @@ mod tests {
                 let mut rows = drawn.lines();
                 let activity = rows.next().unwrap_or_default();
                 assert!(
-                    activity.contains(&format!("· {label}")),
+                    activity.contains(&format!("{} {label}", crate::render::activity::MARK[0])),
                     "{name}: the accepted label is on the activity line: {activity:?}"
                 );
                 assert!(

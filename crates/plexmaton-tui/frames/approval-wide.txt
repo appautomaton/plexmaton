@@ -22,7 +22,7 @@
 │transcript remains interactive.                           ││                                                          │
 │                                                          ││                                                          │
 │received from Agent B · UI study · Routing stays centrali…││                                                          │
-│· Thinking…                                        ( !1 ) ││                                                          │
+│󰝦 Thinking…                                        ( !1 ) ││                                                          │
 ── Approval required · edit ────────────────────────────────│                                                          │
                                                             │                                                          │
    Change crates/plexmaton-core/src/lib.rs and preserve …   │                                                          │

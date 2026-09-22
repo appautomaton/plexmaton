@@ -6,6 +6,6 @@ resolves every one against the source, so a renamed or deleted test fails the bu
 
 | Invariant | Proven by |
 | --- | --- |
-| MOT-1 | `mot_1_one_deadline_serves_every_mover_and_late_wakes_coalesce`, `effort_xhigh_labels_remain_static_without_an_animation_deadline`, `effort_animation_changes_only_visible_max_cells_and_stops_when_hidden` |
-| MOT-2 | Unproven beyond `effort_animation_changes_only_visible_max_cells_and_stops_when_hidden`, which checks the effort markers' width |
+| MOT-1 | `mot_1_one_deadline_serves_every_mover_and_late_wakes_coalesce`, `the_mark_cycle_divides_the_clock_cycle`, `effort_xhigh_labels_remain_static_without_an_animation_deadline`, `effort_animation_changes_only_visible_max_cells_and_stops_when_hidden` |
+| MOT-2 | `mot_2_every_activity_mark_frame_is_one_cell`, `effort_animation_changes_only_visible_max_cells_and_stops_when_hidden` |
 | MOT-3 | `effort_animation_changes_only_visible_max_cells_and_stops_when_hidden` |

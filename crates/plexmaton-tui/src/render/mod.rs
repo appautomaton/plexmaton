@@ -1,5 +1,6 @@
 use ratatui::{Frame, layout::Rect, widgets::Clear};
 
+pub(crate) mod activity;
 pub(crate) mod agents_handle;
 mod child_control;
 mod chrome;
@@ -103,7 +104,7 @@ pub fn render(
             SurfaceId::Transcript => Some(Panel {
                 insets: crate::surface::ContentInsets::default(),
                 chrome: Chrome::Box,
-                footer: Some(chrome::activity_line(
+                footer: Some(activity::activity_line(
                     state,
                     palette,
                     inner_width(bounds.width),
@@ -346,7 +347,8 @@ mod tests {
     };
 
     use super::{
-        chrome::{activity_line, block_with, composer_title},
+        activity::activity_line,
+        chrome::{block_with, composer_title},
         panel::{Body, Chrome, Edges, Panel, draw_panel},
     };
 
@@ -438,6 +440,47 @@ mod tests {
         ink(style)
     }
 
+    /// The activity line from its label onward, without the right-hand pill.
+    fn reading(state: &ViewState, width: u16) -> String {
+        let line = activity_line(state, &Palette::default(), width, false).to_string();
+        let label = line.find("Thinking…").expect("the label is on the row");
+        line[label..]
+            .split("( !")
+            .next()
+            .unwrap_or_default()
+            .trim_end()
+            .to_owned()
+    }
+
+    /// ui-ux §input: while work runs the row reads elapsed time, effort and, after five silent
+    /// seconds, how long it has been quiet; a short row drops effort, then quiet, then elapsed.
+    #[test]
+    fn the_activity_line_reads_elapsed_effort_and_quiet_and_drops_them_in_order() {
+        let mut state = canonical_state();
+        state.set_model(crate::test_support::configuration_summary());
+        let started = std::time::Instant::now();
+        state.observe_activity(started, true);
+        state.tick_activity(started + std::time::Duration::from_secs(12));
+        let effort = crate::test_support::configuration_summary().reasoning_effort;
+        assert_eq!(
+            reading(&state, 80),
+            format!(
+                "Thinking… · 12s · {} effort · quiet for 12s",
+                effort.as_str()
+            )
+        );
+        assert_eq!(reading(&state, 48), "Thinking… · 12s · quiet for 12s");
+        assert_eq!(reading(&state, 30), "Thinking… · 12s");
+        assert_eq!(reading(&state, 18), "Thinking…");
+
+        state.observe_activity(started + std::time::Duration::from_secs(12), true);
+        assert_eq!(
+            reading(&state, 80),
+            format!("Thinking… · 12s · {} effort", effort.as_str()),
+            "just heard: nothing to say about quiet"
+        );
+    }
+
     /// COM-5: the activity line names each current-work state in its role, idle draws nothing,
     /// and the composer's rule never carries any of it (ui-ux §input).
     #[test]
@@ -450,12 +493,18 @@ mod tests {
             .unwrap_or_else(|| panic!("the canonical scenario creates a primary agent"));
         let assert_activity = |state: &ViewState, expected: &str, role: Role| {
             let line = activity_line(state, &palette, 80, false);
+            let mark = super::activity::MARK[0];
             assert!(
-                line.to_string().starts_with(expected),
-                "{expected:?} leads the activity line: {line}"
+                line.to_string().starts_with(&format!("{mark} {expected}")),
+                "the mark then {expected:?} lead the activity line: {line}"
             );
             assert_eq!(
-                line.spans[1].style,
+                line.spans[0].style,
+                palette.style(Role::SurfacePrimary),
+                "the mark wears the user's own hue"
+            );
+            assert_eq!(
+                line.spans[2].style,
                 palette.style(role),
                 "the current-work label must carry {role:?}"
             );
@@ -466,11 +515,11 @@ mod tests {
             );
         };
 
-        assert_activity(&canonical, "· Thinking…", Role::Ambient);
-        assert_activity(&current_responding_state(), "· Responding…", Role::Ambient);
+        assert_activity(&canonical, "Thinking…", Role::Ambient);
+        assert_activity(&current_responding_state(), "Responding…", Role::Ambient);
         assert_activity(
             &current_running_tool_state(),
-            "· Running read_file…",
+            "Running read_file…",
             Role::Ambient,
         );
 
@@ -492,8 +541,17 @@ mod tests {
             },
         });
         let line = activity_line(&approval.state, &palette, 80, false);
-        assert!(line.to_string().starts_with("· Approval required"));
-        assert_eq!(line.spans[1].style, palette.style(Role::ActionRequired));
+        assert!(
+            line.to_string()
+                .starts_with(&format!("{} Approval required", super::activity::MARK[0])),
+            "approval stands still on the mark's first frame: {line}"
+        );
+        assert_eq!(line.spans[0].style, palette.style(Role::ActionRequired));
+        assert_eq!(line.spans[2].style, palette.style(Role::ActionRequired));
+        assert!(
+            !line.to_string().contains(" · "),
+            "no readings while the user is the one being waited on: {line}"
+        );
         assert!(
             line.to_string().trim_end().ends_with("( !2 )"),
             "the pill counts both unanswered requests at the activity line's right end: {line}"

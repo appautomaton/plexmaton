@@ -33,7 +33,7 @@
 │remains interactive.                                                                                                  │
 │                                                                                                                      │
 │received from Agent B · UI study · Routing stays centralized and z-ordered.                                           │
-│· Thinking…                                                                                                    ( !1 ) │
+│󰝦 Thinking…                                                                                                    ( !1 ) │
 ── Message ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
  Type a message · ⇥ to focus                                                                                            
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

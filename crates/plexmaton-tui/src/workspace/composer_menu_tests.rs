@@ -481,7 +481,7 @@ fn a_requested_compaction_shows_on_the_activity_line_and_ends_with_a_note() {
         drawn
             .lines()
             .last()
-            .is_some_and(|row| row.contains("· Compacting…")),
+            .is_some_and(|row| row.contains(" Compacting…")),
         "{drawn}"
     );
 

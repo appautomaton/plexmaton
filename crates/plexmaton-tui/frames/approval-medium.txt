@@ -22,7 +22,7 @@
 │independently; this transcript remains interactive.                                          │
 │                                                                                             │
 │received from Agent B · UI study · Routing stays centralized and z-ordered.                  │
-│· Thinking…                                                                           ( !1 ) │
+│󰝦 Thinking…                                                                           ( !1 ) │
 ── Approval required · edit ───────────────────────────────────────────────────────────────────
                                                                                                
    Change crates/plexmaton-core/src/lib.rs and preserve its current revision.                  

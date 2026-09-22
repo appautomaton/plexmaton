@@ -28,7 +28,7 @@
 │received from Agent B · UI study · Routing stays centralized and z-ordered.                  │
 │                                                                                             │
 │                                                                                             │
-│· Responding…                                                                         ( !1 ) │
+│󰝦 Responding…                                                                         ( !1 ) │
 ── Waiting to send · 2 ────────────────────────────────────────────────────────────────────────
  Sends when this turn ends
  ↳ Also check the compaction path while you are in there
