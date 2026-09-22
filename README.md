@@ -37,7 +37,7 @@ mkdir -p .local/plexmaton
 cp examples/providers.toml .local/plexmaton/config.toml
 ```
 
-Select your provider/model in that file, set its `api_key_env` variable, then launch:
+Select your provider/model in that file. Put the credential in that variable, or set `api_key` on the route, then launch:
 
 ```sh
 PLEXMATON_HOME="$PWD/.local/plexmaton" cargo run -p plexmaton-cli --bin plexmaton

@@ -6,7 +6,6 @@
 //! admission.
 
 use crate::session_picker::ConversationPicker;
-use plexmaton_provider::resolve_api_key;
 use plexmaton_runtime::{LiveRuntime, ModelReplacement};
 use plexmaton_tui::{ModelChange, Workspace};
 
@@ -63,7 +62,9 @@ fn apply_model(
         .models()
         .model(&change.identity.provider, &change.identity.model)
         .ok_or_else(|| "This configured model is no longer available.".to_owned())?;
-    let key = resolve_api_key(model, std::env::var_os(model.api_key_env()))
+    let key = picker
+        .models()
+        .api_key_for(model, std::env::var_os(model.api_key_env()))
         .map_err(|_| "The selected provider credential is missing or invalid.".to_owned())?;
     runtime
         .set_model(&change.agent, model.clone(), key)

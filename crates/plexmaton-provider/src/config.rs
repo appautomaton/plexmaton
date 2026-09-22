@@ -2,7 +2,7 @@
 
 use plexmaton_core::ReasoningEffort;
 pub use plexmaton_core::ServerTool;
-use std::{collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, ffi::OsString, fmt};
 
 mod environment;
 mod model;
@@ -152,10 +152,12 @@ impl ModelSelection {
 pub struct ModelRegistry {
     active: ModelSelection,
     models: BTreeMap<(String, String), ResolvedModel>,
+    /// Bearer tokens written on the route. The resolved model stays credential-blind.
+    api_keys: BTreeMap<String, ApiKey>,
 }
 
 /// Provider bearer credential whose ordinary debug representation is always redacted.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ApiKey(String);
 
 impl ApiKey {
@@ -188,6 +190,8 @@ struct RawModelRegistry {
 struct RawProvider {
     base_url: String,
     api_key_env: String,
+    /// Optional bearer token for this route. A set environment variable still overrides it.
+    api_key: Option<String>,
     api: Option<ModelApi>,
     models: BTreeMap<String, RawModel>,
 }
@@ -277,6 +281,8 @@ pub enum ConfigError {
     MissingApiKeyEnvironment(String),
     #[error("provider API key environment variable `{0}` is not a header-safe value")]
     InvalidApiKeyValue(String),
+    #[error("provider `{0}` has an API key that is not header-safe")]
+    InvalidInlineApiKey(String),
 }
 
 impl ModelRegistry {
@@ -294,11 +300,16 @@ impl ModelRegistry {
 
     fn resolve(raw: RawModelRegistry) -> Result<Self, ConfigError> {
         let mut models = BTreeMap::new();
+        let mut api_keys = BTreeMap::new();
         for (provider_name, provider) in raw.providers {
             let base_url = validate_provider(&provider_name, &provider)?;
+            if let Some(key) = inline_api_key(&provider_name, provider.api_key.as_deref())? {
+                api_keys.insert(provider_name.clone(), key);
+            }
             let RawProvider {
                 base_url: _,
                 api_key_env,
+                api_key: _,
                 api,
                 models: provider_models,
             } = provider;
@@ -335,7 +346,26 @@ impl ModelRegistry {
         Ok(Self {
             active: raw.active_model,
             models,
+            api_keys,
         })
+    }
+
+    /// Resolves the bearer token for `model`.
+    ///
+    /// A present environment value wins, so a shell can override the file. When that value is
+    /// absent, the route's `api_key` is used. The returned credential is redacted in `Debug`.
+    pub fn api_key_for(
+        &self,
+        model: &ResolvedModel,
+        environment: Option<OsString>,
+    ) -> Result<ApiKey, ConfigError> {
+        if environment.is_some() {
+            return resolve_api_key(model, environment);
+        }
+        if let Some(key) = self.api_keys.get(model.provider_name()) {
+            return Ok(key.clone());
+        }
+        resolve_api_key(model, None)
     }
 
     /// Every configured model in deterministic provider/name order; no credentials are resolved.
@@ -405,6 +435,16 @@ fn validate_provider(name: &str, provider: &RawProvider) -> Result<String, Confi
         }
     }
     Ok(base_url.to_string())
+}
+
+fn inline_api_key(provider: &str, value: Option<&str>) -> Result<Option<ApiKey>, ConfigError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_graphic()) {
+        return Err(ConfigError::InvalidInlineApiKey(provider.to_owned()));
+    }
+    Ok(Some(ApiKey(value.to_owned())))
 }
 
 fn is_environment_name(value: &str) -> bool {

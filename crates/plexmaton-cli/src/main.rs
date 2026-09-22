@@ -10,6 +10,7 @@ use crossterm::event::EventStream;
 #[cfg(test)]
 use plexmaton_agent::Input;
 use plexmaton_core::AgentId;
+#[cfg(test)]
 use plexmaton_provider::resolve_api_key;
 use plexmaton_runtime::{ConversationRecovery, DispatchReport, LiveRuntime, NativeToolCatalog};
 use plexmaton_tui::{ConfigurationSummary, Palette, Workspace};

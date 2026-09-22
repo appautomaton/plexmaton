@@ -111,22 +111,26 @@ content the record cannot name.
 
 **PRV-6 — Configuration names data, never authority.** `~/.plexmaton/config.toml` separates named
 provider routes from their named models and selects one exact provider/model pair. A route owns its
-base URL, credential environment and default API; a model owns its wire/display identity, optional
-API override, optional reasoning controls, a declared allowed-effort subset, a declared hosted-tool
-subset, stable instructions, cache intent, context/output/reserve
+base URL, credential environment, optional inline bearer token, and default API; a model owns its
+wire/display identity, optional API override, optional reasoning controls, a declared allowed-effort
+subset, a declared hosted-tool subset, stable instructions, cache intent, context/output/reserve
 limits, compaction retention target, estimator and optional price
 snapshot. Resolution yields one immutable credential-blind value: omitted estimators become an
 explicit versioned default, while omitted pricing remains unavailable. Selection never uses fuzzy
-names or URL inference. `PLEXMATON_HOME` redirects the whole root for isolated development; keys
-never enter the file, diagnostics, repository or a native command's environment, and invalid input
-fails before network work begins. SKL-1 permits a narrow project model-selection layer without
+names or URL inference. `PLEXMATON_HOME` redirects the whole root for isolated development. A
+route may keep its bearer token in `api_key`; the resolved model stays credential-blind, diagnostics
+redact the token, and a set environment variable still overrides the file. Keys never enter
+diagnostics, the repository, or a native command's environment, and invalid input fails before
+network work begins. SKL-1 permits a narrow project model-selection layer without
 project provider definitions or credential changes. An allowed-effort declaration must be nonempty,
 unique and encodable by the dialect; an explicit configured effort must belong to it. A hosted-tool
 declaration names capabilities the owner knows their route accepts; it must be nonempty, unique and
 spellable by the dialect, and nothing infers one from a provider or model name. A route that accepts
 a spelling and ignores it is the declaration being wrong, which the owner corrects, never something
-the harness guesses around. Rejected: a combined provider/model profile,
-inline keys, and untyped merging of project configuration into provider authority.
+the harness guesses around. Rejected: a combined provider/model profile, and untyped merging of
+project configuration into provider authority. Rejected: requiring the shell to export the named
+variable, which kept a local route from starting when the token already belonged in the user-owned
+file.
 
 [AGI-3/AGI-4](./agent-instructions.md) add a bounded workspace snapshot to that immutable request
 environment as user context, separately from configured system instructions and tool authority.

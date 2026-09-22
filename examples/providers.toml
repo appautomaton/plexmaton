@@ -1,6 +1,6 @@
 # Current frontier series; select the exact route/model pair your account can access.
 # These conservative local budgets are below the models' published ceilings.
-# Credentials come only from the named environment variables.
+# A route names the environment variable that holds its credential, or sets api_key itself.
 # Native Astra tool conversations require Responses.
 active_model = { provider = "openai", model = "responses" }
 

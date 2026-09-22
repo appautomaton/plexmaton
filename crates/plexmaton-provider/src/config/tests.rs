@@ -283,15 +283,39 @@ reasoning_effort = "xhigh"
         ModelRegistry::parse(legacy),
         Err(ConfigError::Toml)
     ));
+}
 
-    let inline_key = LOCAL_CONFIG.replace(
+#[test]
+fn prv_6_inline_key_is_used_when_its_environment_variable_is_absent() {
+    let source = LOCAL_CONFIG.replace(
         "api_key_env = \"PLEXMATON_LOCAL_API_KEY\"",
         "api_key_env = \"PLEXMATON_LOCAL_API_KEY\"\napi_key = \"inline-secret\"",
     );
-    let error = ModelRegistry::parse(&inline_key).expect_err("inline key must be rejected");
-    assert!(matches!(&error, ConfigError::Toml));
+    let registry = ModelRegistry::parse(&source).expect("inline key is part of the route");
+    let model = registry.active_model();
+    let rendered = format!("{model:?}\n{registry:?}");
+    assert!(!rendered.contains("inline-secret"));
+    let key = registry
+        .api_key_for(model, None)
+        .expect("file token supplies the absent variable");
+    assert_eq!(key.expose(), "inline-secret");
+    assert_eq!(format!("{key:?}"), "ApiKey([REDACTED])");
+    let overridden = registry
+        .api_key_for(model, Some("from-env".into()))
+        .expect("environment still overrides the file");
+    assert_eq!(overridden.expose(), "from-env");
+
+    let unsafe_key = LOCAL_CONFIG.replace(
+        "api_key_env = \"PLEXMATON_LOCAL_API_KEY\"",
+        "api_key_env = \"PLEXMATON_LOCAL_API_KEY\"\napi_key = \"not header safe\"",
+    );
+    let error = ModelRegistry::parse(&unsafe_key).expect_err("unsafe token must be rejected");
+    assert!(matches!(
+        &error,
+        ConfigError::InvalidInlineApiKey(provider) if provider == "local"
+    ));
     let diagnostics = format!("{error}\n{error:?}");
-    assert!(!diagnostics.contains("inline-secret"));
+    assert!(!diagnostics.contains("not header safe"));
 }
 
 #[test]
