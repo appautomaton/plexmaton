@@ -56,6 +56,7 @@ mod markdown_tests;
 mod math_tests;
 #[cfg(test)]
 mod model_tests;
+mod motion;
 mod notices;
 mod paint;
 #[cfg(test)]
@@ -221,7 +222,7 @@ pub struct Workspace {
     preparation: preparation::Preparation,
     copy: copy::CopyPreparation,
     native: crate::math::NativeFrame,
-    effort_animation: Option<effort::EffortAnimation>,
+    motion: Option<motion::Motion>,
 }
 
 impl Workspace {

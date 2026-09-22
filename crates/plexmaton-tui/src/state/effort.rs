@@ -57,14 +57,6 @@ impl ViewState {
         }
     }
 
-    pub(crate) fn effort_phase(&self) -> u16 {
-        self.composer_menu.effort_phase
-    }
-
-    pub(crate) fn set_effort_phase(&mut self, phase: u16) {
-        self.composer_menu.effort_phase = phase;
-    }
-
     pub(crate) fn effort_visible(&self) -> bool {
         self.menu_listing() == Some(Listing::Effort)
             && self.composer_menu.is_open()

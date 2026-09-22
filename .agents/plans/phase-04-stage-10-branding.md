@@ -3,9 +3,9 @@
 | Field | Value |
 | --- | --- |
 | Phase | [Phase 04](../phases/phase-04-product-polish.md) stage 10 |
-| Contract | [ui-ux](../ui-ux.md) "An empty conversation shows the mark"; MOT-1 to MOT-3 in [stage 34's plan](./phase-04-stage-34-conversation-chrome.md) until promoted; FR-1 in [frame-loop](../specs/frame-loop.md) |
+| Contract | [ui-ux](../ui-ux.md) "An empty conversation shows the mark"; MOT-1 to MOT-3 in [motion](../specs/motion.md); FR-1 in [frame-loop](../specs/frame-loop.md) |
 | Evidence | [Conversation chrome spike](../spikes/conversation-chrome/README.md): mark proportions, motion choreographies, the Nerd Font shape family and the measured cells |
-| Status | Slice 0 of 4, unstarted; begins after stage 34's slice 3 lands the motion owner |
+| Status | Slice 0 of 4, unstarted; ready to begin: stage 34 landed the motion owner |
 
 ## Outcome
 

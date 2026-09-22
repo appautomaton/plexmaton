@@ -110,11 +110,12 @@ Visual changes are reviewed against real frames before the contract adopts them.
     set the Nerd Font already supplies; the block is odd on both axes and its width is chosen from
     the terminal's measured cell so it comes out square, because no fixed size is square in two
     fonts. It first appears centred in an empty conversation and leaves with the first message. In
-    motion the frame breathes between weights and drifts between palette slots, and the centre morphs
-    through circle, ring, rounded square and square, on the visible-only clock EFF-4 owns. Palette,
-    pure Ratatui drawing and the clock stay separate responsibilities; static previews at three
-    widths precede motion; no script reruns per frame. The
-    [stage plan](../plans/phase-04-stage-10-branding.md) owns the order.
+    motion the frame breathes between weights and drifts between palette slots, and the centre
+    morphs through circle, ring, rounded square and square, on the workspace's one motion clock
+    ([motion](../specs/motion.md)). Palette, pure Ratatui drawing and the clock stay separate
+    responsibilities; static previews at three widths precede motion; no script reruns per frame.
+    The [stage plan](../plans/phase-04-stage-10-branding.md) owns the order.
+
 11. **Composer menu and Drawer — complete.** A Command is a slash command only, typed into the
     conversation it addresses and run from there with a captured target: `/new`, `/resume` over
     saved conversations, `/compact` and `/permissions` for the Session, under
@@ -396,7 +397,7 @@ Rejected: treating JSONL round trips as independent export/import acceptance.
     repeating the agent, and the activity line moves while the agent works:
     the mark's core, the label, elapsed time, effort, and how long the route has been quiet. Both
     were chosen from rendered candidates beside Claude Code, Codex and Grok, and both change
-    presentation only; motion shares EFF-4's clock rather than owning one. The
+    presentation only; motion runs on the workspace's one clock ([motion](../specs/motion.md)). The
     [stage plan](../plans/phase-04-stage-34-conversation-chrome.md) owns the order.
 
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is
