@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15, 17–27, 29, 31 and 32 complete; stages 16 and 28 await the user's terminal test; stage 30 automatic-compaction visibility unstarted; stage 33 provider-side tools in progress; stage 10 branding remains |
+| Status | Active; stages 1–9, 11–15, 17–27, 29 and 31–33 complete; stages 16 and 28 await the user's terminal test; stage 30 automatic-compaction visibility unstarted; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership; Phase 02 journal/accounting/budget projections; Phase 03 durable collaboration, owned child scheduling, Handoff/Stop, passive recovery and canonical Attention |
@@ -376,12 +376,13 @@ JRN-3/PRV-3 prove JSONL save, reopen and exact compatible replay only; an export
 and its replay disclosure policy remain unproven. MCP remains optional later integration.
 Rejected: treating JSONL round trips as independent export/import acceptance.
 
-33. **Provider-side tools — in progress.** A model declares the hosted tools its route accepts, and the
-    harness forwards that declaration and renders what comes back rather than running the search
-    itself. The [stage plan](../plans/phase-04-stage-33-provider-side-tools.md) owns the order; the
-    [spike](../spikes/provider-side-tools/README.md) owns the evidence, measured against one live
-    route. PRV-5's refusal of a
-    provider-side block is rewritten by this stage rather than left as a second reading.
+33. **Provider-side tools — complete.** A model declares the hosted tools its route accepts
+    (PRV-6), the harness forwards the declaration, and a provider-run search is a transcript row in
+    its own colour that appears where the provider began it and finishes once (PRV-5, ENT-2). The
+    harness never runs the search. The [spike](../spikes/provider-side-tools/README.md) keeps the
+    live measurements of the one route this was proven on, including that the route delivers a
+    whole turn at once. Where hosted-tool spend belongs in the cost surface stays open in
+    [ui-ux](../ui-ux.md) §open questions.
 
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is
 ready; this phase opening does not claim those capabilities have started.

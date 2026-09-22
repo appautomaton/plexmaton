@@ -2,17 +2,17 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Comparison and live measurement retained as evidence; the design is decided in [stage 33](../../plans/phase-04-stage-33-provider-side-tools.md) |
+| Status | Implemented as phase 04 stage 33; PRV-5, PRV-6 and ENT-2 own the behaviour. Live measurements retained as evidence for the next hosted tool |
 | Read when | Adding web search, or any tool a provider runs on its own side rather than handing to this harness |
 | Question | Can a Session reach provider-hosted search without the harness losing sight of what was searched? |
 | Contract | [provider-adapter](../../specs/provider-adapter.md) PRV-1/PRV-3/PRV-5; [tool-admission](../../specs/tool-admission.md); [permission-policy](../../specs/permission-policy.md) PER-2 |
 
 ## Why this exists
 
-`provider-adapter.md` PRV-5 records that a `server_tool_use` block is refused, and why. It does not
-say whether that refusal should stand. A provider that runs a search on its own side is the one
-category the fence position does not cover: not something we execute, not something we hand to a
-subprocess, but something the provider performs inside a call the owner already authorised.
+A provider that runs a search on its own side is the one category the fence position does not
+cover: not something we execute, not something we hand to a subprocess, but something the provider
+performs inside a call the owner already authorised. PRV-5 once refused the block outright; this
+spike is why it now carries the call and types its outcome.
 
 ## Corpus
 
@@ -27,40 +27,15 @@ Local source read 2026-09-20; no reference suite was run. Plexmaton base `c7bdf0
 | `claude-code` | `2.1.88` mapped | `cc/2.1.88` |
 | `kimi-code` | `f12d59e089e2531a33fbca30b26ffeabd5862b45` | — |
 
-## Two shapes, and they are not variations of each other
+## Two shapes, and the one chosen
 
-**Codex makes it a first-class protocol item.** `ResponseItem::WebSearchCall` carries id, status and
-a typed `action`, and `event_mapping.rs:228` turns it into `TurnItem::WebSearch` for the transcript.
-The variant is matched in rollout normalisation, turn timing, remote compaction, image preparation
-and persisted state — so the cost is not one enum arm but every site that already matches the enum.
-`WebSearchItem.results` exists and is set to `None` on this path, because the inline Responses call
-returns the query and not the findings; only a separate standalone search populates it, and its
-comment keeps those results as opaque JSON at the transport boundary so new result shapes need no
-release.
-
-**pi makes it an ordinary client tool.** `extensions/claude-web-search` registers a `WebSearch`
-tool with plain `query` / `allowed_domains` / `blocked_domains` parameters. Its execution issues an
-**isolated** Messages request carrying the hosted tool, and returns a synthesis plus source URLs as
-an ordinary tool result. `payload.ts` refuses a payload that is not exactly one user message before
-continuation history, which is what keeps that request isolated. `getHostedWebSearchRoute` gates the
-whole thing on the active model's provider and API, and `syncWebSearchAvailability` adds or removes
-the tool from the active set as the model changes.
-
-Its consequence is real and worth recording: **the main conversation never contains a
-`server_tool_use` block.** No new content-block type, no new semantic event, no replay hole, and the
-search takes the ordinary admission, permission and transcript path every other tool takes.
-
-Rejected all the same, for two reasons that only appear once it is drawn against this codebase. A
-tool that issues its own model request needs to reach a provider route, and native tools here reach
-a workspace, ripgrep and a command — giving them a route is a larger boundary change than the one it
-saves. And it spends a second model call for every search, chosen by the harness rather than by the
-owner, which is exactly the accounting question the owner has no surface to answer. The owner's
-instruction settles the rest: the declaration goes to the server side, and the harness renders what
-returns.
-
-`grok-build` sits nearer Codex, handling search inside the pager's scrollback block types.
-`claude-code`'s only server-tool surface in readable source is the usage counter shape
-(`web_search_requests`, `web_fetch_requests`) that this harness already parses.
+Codex carries a provider-run search as a first-class protocol item, matched at every site that
+already matches its response enum. pi wraps it as an ordinary client tool that issues its own
+isolated Messages request, so its main conversation never holds a `server_tool_use` block. Codex's
+shape was taken, narrowed by a declaration. pi's was rejected because a tool that issues its own
+model request needs a provider route that native tools here do not have, and because it spends a
+second model call per search that the harness, not the owner, chose. grok-build sits nearer Codex;
+claude-code's only readable server-tool surface is the usage counter this harness already parses.
 
 ## Configuration declares, the dialect spells
 
@@ -107,16 +82,12 @@ What the declaration buys is that none of this reaches a model that did not ask 
 with no hosted tools encodes nothing new and decodes nothing new, so the existing four dialects keep
 their current behaviour exactly.
 
-[Stage 33](../../plans/phase-04-stage-33-provider-side-tools.md) owns the order.
-
 ## Open
 
 - Is strict cloaking what strips search results on the local gateway, or does the upstream never
   send them? `claude_executor_cloaking.go` handles `server_tool_use` and is the place to look.
 - Codex's standalone path populates `results`. Worth reading before assuming the findings are
   always unavailable.
-- Where does hosted-tool spend belong? The usage counter names requests rather than tokens, and
-  no surface shows provider-side work today.
 
 ## Limits
 

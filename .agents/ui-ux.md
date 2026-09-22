@@ -560,5 +560,7 @@ counts are asserted by tests; wall-clock time is only reported, beside the machi
 - How much tool activity remains visible in a collapsed transcript block.
 - Notification treatment for mail that arrives while its sender's window is open.
 - Whether ten rows is the right primary-conversation guarantee in real use.
+- Where hosted-tool spend belongs in the cost surface: provider-side work the owner selected no
+  model for, counted by the route in requests rather than tokens.
 
 An answered question moves into the section that owns the answer.
