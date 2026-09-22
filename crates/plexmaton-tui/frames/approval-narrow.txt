@@ -34,7 +34,7 @@
    1–2 decide · ↑↓ Enter · Ctrl-O details                   
    Esc returns to the conversation                          
                                                             
-── Message Agent A · primary ───────────────────────────────
+── Message ─────────────────────────────────────────────────
  Type a message · ⇥ to focus                                
 ────────────────────────────────────────────────────────────
  ~/plexmaton                                                

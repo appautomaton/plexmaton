@@ -250,6 +250,15 @@ def await_screen(master, captured, size, markers=(), absent=(), start=0, complet
     return rendered_screen(bytes(captured[start:]), size)
 
 
+def composer_title(display_name):
+    """What the composer's top rule says: the next message's model and, after it, its effort.
+
+    A marker that the composer is on screen. The trailing separator keeps it from matching a status
+    line that shows the same model name in another shape.
+    """
+    return f" {display_name} · "
+
+
 class Terminal:
     """One real `plexmaton` in front of a pseudo-terminal, named by the journey that drives it.
 
@@ -258,8 +267,9 @@ class Terminal:
     under `permissions-`.
     """
 
-    def __init__(self, project, environment, journey, name, arguments=()):
+    def __init__(self, project, environment, journey, name, arguments=(), composer=None):
         self.project, self.environment = project, environment
+        self.composer = composer
         self.journey, self.name = journey, name
         self.arguments = tuple(arguments)
         self.size = (SMOKE_ROWS, SMOKE_WIDTH)
@@ -363,8 +373,8 @@ class Terminal:
             self.send(ENTER, "Revoke this permission?", "> Back")
             self.send(UP, "> Revoke permission")
             self.send(ENTER, "Permission updated", absent=(SEEDED_COMMANDS,))
-        self.send(ESC, "Message Plexmaton", absent=("Enter review",))
-        return self.send(b"\x15", "Message Plexmaton", absent=("/permissions",))
+        self.send(ESC, self.composer, absent=("Enter review",))
+        return self.send(b"\x15", self.composer, absent=("/permissions",))
 
     def quit(self):
         self.send(b"\x04", "press Ctrl-D again to quit")

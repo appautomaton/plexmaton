@@ -49,6 +49,7 @@ pub fn handle(workspace: &mut Workspace, event: &Event) -> Flow {
                 configured_name: "UI fixture".into(),
                 provider: "None (offline preview)".into(),
                 model: "No model".into(),
+                display_name: "No model".into(),
                 reasoning_effort: ReasoningEffort::None,
             }),
             Page::Permissions => {

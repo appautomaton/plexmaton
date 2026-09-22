@@ -33,6 +33,7 @@ from smoke_support import (
     Terminal,
     click,
     collapsed,
+    composer_title,
     fixture_environment,
     observe_for,
     read_to_eof,
@@ -40,6 +41,9 @@ from smoke_support import (
     sgr_press,
     SMOKE_WIDTH,
 )
+
+# The primary composer's rule; a collapsed composer still reads "Message Plexmaton · ⇥ to return".
+COMPOSER = composer_title("DelegateFixture")
 
 ASK = "DELEGATE_ASK please have someone count the fixtures"
 TASK = "COUNT_THE_FIXTURES in this project and report the number"
@@ -947,7 +951,7 @@ def run_smoke(provider):
         (project / "second").write_text("second fixture\n")
 
         with Terminal(project, environment, "delegate", "round-trip") as terminal:
-            terminal.wait("Message Plexmaton")
+            terminal.wait(COMPOSER)
             # CTL-1: one model-visible call creates a real child, and the roster names it.
             terminal.prompt(ASK, WAITING, CHILD)
             # ENT-1: the root's own transcript holds the task it handed out, addressed to the child.
@@ -1153,7 +1157,7 @@ def run_kill_resume_smoke(provider, paused):
 
         # First kill after task and mail are acknowledged while both conversations are idle.
         with Terminal(project, environment, "delegate", "kill-idle") as terminal:
-            terminal.wait("Message Plexmaton")
+            terminal.wait(COMPOSER)
             terminal.prompt(KILL_ASK, KILL_WAITING, CHILD)
             idle_root_screen = terminal.wait(*KILL_IDLE_ROOT_MARKERS)
             idle_root = screen_manifest(idle_root_screen, KILL_IDLE_ROOT_MARKERS)
@@ -1413,7 +1417,7 @@ def approval_attention_at_three_widths(terminal, artifact):
             CHILD,
             "approval",
             APPROVAL_WAITING,
-            "Message Plexmaton",
+            COMPOSER,
             absent=("Allow once",),
         )
         if label:
@@ -1421,7 +1425,7 @@ def approval_attention_at_three_widths(terminal, artifact):
     root = terminal.resize(
         60,
         APPROVAL_WAITING,
-        "Message Plexmaton",
+        COMPOSER,
         "Agents ^B",
         absent=("Allow once",),
     )
@@ -1432,8 +1436,8 @@ def approval_attention_at_three_widths(terminal, artifact):
         "approval",
     )
     write_frame(terminal, f"{artifact}-agents", "narrow", agents)
-    terminal.send(b"\x02", APPROVAL_WAITING, "Message Plexmaton", "Agents ^B")
-    terminal.resize(SMOKE_WIDTH, CHILD, "approval", APPROVAL_WAITING, "Message Plexmaton")
+    terminal.send(b"\x02", APPROVAL_WAITING, COMPOSER, "Agents ^B")
+    terminal.resize(SMOKE_WIDTH, CHILD, "approval", APPROVAL_WAITING, COMPOSER)
 
 
 def open_child_approval(terminal):
@@ -1457,7 +1461,7 @@ def run_approval_recovery_smoke(provider):
         )
 
         with Terminal(project, environment, "delegate", "approval-before-death") as terminal:
-            terminal.wait("Message Plexmaton")
+            terminal.wait(COMPOSER)
             terminal.prompt(APPROVAL_ASK, APPROVAL_WAITING, CHILD)
             approval_attention_at_three_widths(terminal, "approval-live")
             requests_before, errors = provider.snapshot()
@@ -1530,7 +1534,7 @@ def run_stop_smoke(provider, paused):
         environment = configure(home, provider)
 
         with Terminal(project, environment, "delegate", "stop") as terminal:
-            terminal.wait("Message Plexmaton")
+            terminal.wait(COMPOSER)
             terminal.prompt(STOP_ASK, "STOP_ROOT_WAITING", CHILD)
             # Selecting then entering the row is the real open/focus path; Ctrl-C then resolves
             # the Inspector conversation rather than the primary runtime (INV-7).

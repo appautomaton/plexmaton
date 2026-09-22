@@ -263,8 +263,9 @@ pub(super) fn notices_title(state: &ViewState, palette: &Palette) -> Line<'stati
     title(palette, "Notices", Role::SectionHeading, rest)
 }
 
-/// The title names the target, which keeps the binding visible rather than remembered when the
-/// selection is on a different agent (COM-4).
+/// The title names the model the next message goes to (COM-4). The primary composer can address
+/// only the primary agent, whose name the conversation's box above already carries, so naming the
+/// agent here repeated it; the model is what the rule can say that nothing else on screen does.
 pub(super) fn composer_title(state: &ViewState, palette: &Palette) -> Line<'static> {
     if state.editing_retry() {
         return title_with(
@@ -275,12 +276,11 @@ pub(super) fn composer_title(state: &ViewState, palette: &Palette) -> Line<'stat
             Role::Muted,
         );
     }
-    let name = state.primary_agent().map_or_else(
-        || "Message".to_owned(),
-        |agent| format!("Message {}", agent.label),
-    );
-    // Only what concerns the input is written on its rule: whom it goes to, and how hard the
-    // model will think about it. What the agent is doing is the conversation's activity line.
+    let name = state
+        .model_name()
+        .map_or_else(|| "Message".to_owned(), str::to_owned);
+    // Only what concerns the input is written on its rule: which model answers it, and how hard
+    // it will think. What the agent is doing is the conversation's activity line.
     let mut line = title_with(
         palette,
         name,

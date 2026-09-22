@@ -11,8 +11,10 @@ import shlex
 import subprocess
 import tempfile
 import termios
-from smoke_support import (ALTERNATE_SCREEN_EXIT, ROOT, NoModelRequests, await_screen,
-                           fixture_environment, read_to_eof, read_until, set_size)
+from smoke_support import (ALTERNATE_SCREEN_EXIT, await_screen, composer_title, fixture_environment,
+                           NoModelRequests, read_to_eof, read_until, ROOT, set_size)
+
+COMPOSER = composer_title("FixtureLuna")
 
 
 def run_smoke(model_url):
@@ -57,14 +59,14 @@ output_reserve_tokens = 8192
                 start = len(capture)
                 set_size(master, size)
                 small = size[0] < 12 or size[1] < 48
-                markers = ("Terminal too small",) if small else ("Plexmaton", "Message Plexmaton")
+                markers = ("Terminal too small",) if small else ("Plexmaton", COMPOSER)
                 if published:
                     markers += (f"FixtureLuna:{size[1]}",)
                 screen = await_screen(master, capture, size, markers,
                                             ("status line:", "null"), start, complete=not small)
                 return screen, start
 
-            await_screen(master, capture, (30, 120), ("FixtureLuna:120", "Message Plexmaton"))
+            await_screen(master, capture, (30, 120), ("FixtureLuna:120", COMPOSER))
             for width in [120, 95, 60]:
                 resize((30, width + 1), published=True)
                 screen, _ = resize((30, width), published=True)

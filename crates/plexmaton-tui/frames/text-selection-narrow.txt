@@ -7,7 +7,7 @@
 │                                                          │
 │                                                          │
 │                                                          │
-│▌Review the Markdown update.                              │
+│ › Review the Markdown update.                            │
 │                                                          │
 │Summary                                                   │
 │                                                          │
@@ -18,7 +18,7 @@
 │└                                                         │
 │                                                          │
 │                                             text selected│
-── Message Plexmaton ───────────────────────────────────────
+── Message ─────────────────────────────────────────────────
  Type a message · ⇥ to focus
 ────────────────────────────────────────────────────────────
 

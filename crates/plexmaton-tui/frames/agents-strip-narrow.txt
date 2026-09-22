@@ -18,7 +18,7 @@
 │                                                          │
 │received from Agent B · UI study · Routing stays centrali…│
 │· Thinking…                                        ( !2 ) │
-── Message Agent A · primary ───────────────────────────────
+── Message ─────────────────────────────────────────────────
  Type a message · ⇥ to focus                                
 ────────────────────────────────────────────────────────────
  ~/plexmaton                                                

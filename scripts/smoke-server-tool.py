@@ -13,7 +13,9 @@ import subprocess
 import tempfile
 
 from provider_fixture import ScriptedProvider
-from smoke_support import ROOT, Terminal, fixture_environment
+from smoke_support import ROOT, Terminal, composer_title, fixture_environment
+
+COMPOSER = composer_title("Searcher")
 
 
 def event(payload):
@@ -108,7 +110,7 @@ output_reserve_tokens = 4096
 ''')
         environment = dict(fixture_environment(), PLEXMATON_HOME=str(home), LOOP_LOGIN="fixture-only")
         with Terminal(project, environment, "server-tool", "placement") as terminal:
-            terminal.wait("Message Plexmaton")
+            terminal.wait(COMPOSER)
             screen = terminal.prompt("What is the latest stable Rust release?", "SMOKE_ANSWER", "[+] web_search · Rust 1.98.1 release",
                                      absent=("Preparing text", "Running web_search", "· Thinking"))
             # Placed where the provider put them: between the narration lines, not after the answer.

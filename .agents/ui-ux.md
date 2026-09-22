@@ -142,10 +142,11 @@ other rule about input follows from this one.
   existing draft, which loses separate intent and can lose its skill binding.
 - **Every rendered input sits under the conversation it addresses**, between two rules; optional
   waiting and decision sections sit above the composer. The conversation carries a box of its own,
-  titled with whose it is, and the composer's top rule below it names the target and the message's
-  [reasoning effort](./specs/reasoning-effort.md) and carries nothing else — the box says what is
-  being read, the rule says what the next message addresses, and those differ exactly when a
-  sub-agent's window is open. A User-controlled sub-agent's input is the bottom of its window; a
+  titled with whose it is, and the composer's top rule below it names the model that answers the
+  next message, by the name its owner gave it, and the message's
+  [reasoning effort](./specs/reasoning-effort.md), and carries nothing else — the box says whose
+  conversation is being read, the rule says what will answer. Rejected: naming the agent, which
+  repeated the box above it, because the primary composer can address no one else. A User-controlled sub-agent's input is the bottom of its window; a
   Main-controlled window has no input region, and there is no input anywhere else. The composer is
   not inside that box; it keeps its two rules.
 - While a User-controlled sub-agent's input is active, the primary composer **collapses to a single
@@ -291,7 +292,7 @@ terminals with the fewest rows.
 - **A palette is data, and colour is two layers.** Below, twelve slots named the way a terminal
   names them: a ground ramp — `ground`, `line`, `muted`, `text` — and eight hues around a closed
   wheel — `red`, `orange`, `yellow`, `green`, `cyan`, `blue`, `purple`, `magenta`. A theme assigns
-  those twelve and nothing else. Above, the seventeen roles map onto slots and carry their weight;
+  those twelve and nothing else. Above, the eighteen roles map onto slots and carry their weight;
   that mapping is the product's, so no theme can make a failure read as a success.
 - A surface holding a conversation, or the roster of them, carries its own hue on its border:
   muted for the roster, blue for the user's own, cyan for a delegate's. Focus is that hue at full

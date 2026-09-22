@@ -34,8 +34,11 @@ import sys
 import tempfile
 import termios
 from pathlib import Path
-from smoke_support import (ALTERNATE_SCREEN_EXIT, NoModelRequests, await_screen, click, collapsed,
-                           fixture_environment, read_to_eof, read_until, rendered_screen, set_size)
+from smoke_support import (ALTERNATE_SCREEN_EXIT, await_screen, click, collapsed, composer_title,
+                           fixture_environment, NoModelRequests, read_to_eof, read_until,
+                           rendered_screen, set_size)
+
+COMPOSER = composer_title("gpt-5.6-luna")
 
 # A blank single-agent session has no rail; these sizes exercise its owned terminal geometry.
 INITIAL_SIZE = (40, 120)
@@ -43,7 +46,7 @@ RESIZED = (30, 100)
 REPAINT_PROBE_SIZE = (31, 101)
 EXPECTED_ON_FULL_FRAME = (
     # The composer's top rule names the addressee; the conversation above it has no title.
-    "Message Plexmaton",
+    COMPOSER,
     # Not the agent rail: a fresh session has delegated nothing, and a roster of nobody is a
     # bordered box saying so in the column the conversation wanted.
     "~/",
@@ -74,7 +77,7 @@ def check_drawer(master: int, captured: bytearray) -> None:
     os.write(master, b"\x10")
     repaint(master, captured, ("Workspace", "> Configuration", "Permissions", "Esc close"))
     os.write(master, b"\x1b")
-    repaint(master, captured, ("Message Plexmaton",), ("Type to filter", "Esc close"))
+    repaint(master, captured, (COMPOSER,), ("Type to filter", "Esc close"))
 
 
 def check_input_pointer(master: int, captured: bytearray) -> None:
@@ -106,7 +109,7 @@ def check_input_pointer(master: int, captured: bytearray) -> None:
     os.write(master, b"z")
     repaint(master, captured, ("zabc",))
     os.write(master, b"\x03")
-    repaint(master, captured, ("Message Plexmaton",), ("zabc",))
+    repaint(master, captured, (COMPOSER,), ("zabc",))
 
 
 def check_newline(master: int, captured: bytearray) -> None:
@@ -114,7 +117,7 @@ def check_newline(master: int, captured: bytearray) -> None:
     os.write(master, b"first\x0asecond")
     repaint(master, captured, ("first", "second"), exact_lines=("first", "second"))
     os.write(master, b"\x03")
-    repaint(master, captured, ("Message Plexmaton",), ("first", "second"))
+    repaint(master, captured, (COMPOSER,), ("first", "second"))
 
 
 def check_waiting_input(master: int, captured: bytearray) -> None:
@@ -124,7 +127,7 @@ def check_waiting_input(master: int, captured: bytearray) -> None:
     os.write(master, b"\x1b[1;3A")
     repaint(master, captured, ("a draft",), ("Waiting to send",), exact_lines=("a draft",))
     os.write(master, b"\x03")
-    repaint(master, captured, ("Message Plexmaton",), ("a draft",))
+    repaint(master, captured, (COMPOSER,), ("a draft",))
 
 
 def check_model_menu(master: int, captured: bytearray) -> None:
@@ -137,7 +140,7 @@ def check_model_menu(master: int, captured: bytearray) -> None:
     await_screen(master, captured, RESIZED, ("/model no-match",), ("Enter confirm",))
     repaint(master, captured, ("/model no-match",), ("Enter confirm",))
     os.write(master, b"\x15")
-    repaint(master, captured, ("Message Plexmaton",), ("/model",))
+    repaint(master, captured, (COMPOSER,), ("/model",))
 
 
 def check_effort(master: int, captured: bytearray) -> None:
@@ -145,9 +148,9 @@ def check_effort(master: int, captured: bytearray) -> None:
     os.write(master, b"/effort ")
     repaint(master, captured, ("Effort", "none", "low", "medium", "high", "xhigh", "max"))
     os.write(master, b"\x1b[C\r")
-    repaint(master, captured, ("Message Plexmaton", "low"), ("Enter confirm",))
+    repaint(master, captured, (COMPOSER, "low"), ("Enter confirm",))
     os.write(master, b"/effort none\r")
-    repaint(master, captured, ("Message Plexmaton", "none"), ("Enter confirm",))
+    repaint(master, captured, (COMPOSER, "none"), ("Enter confirm",))
 
 
 def check_tree(master: int, captured: bytearray) -> None:
@@ -161,14 +164,14 @@ def check_tree(master: int, captured: bytearray) -> None:
             set_size(master, size)
             await_screen(master, captured, size, ("Conversation tree",), start=start, complete=False)
         os.write(master, b"\x1b")
-        repaint(master, captured, ("Message Plexmaton",), ("Conversation tree", "qzv"))
+        repaint(master, captured, (COMPOSER,), ("Conversation tree", "qzv"))
     os.write(master, b"/tree\r")
     await_screen(master, captured, RESIZED, ("Conversation tree",), complete=False)
     start = len(captured)
     set_size(master, (8, 40))
     await_screen(master, captured, (8, 40), start=start, complete=False)
     os.write(master, b"\x1b")
-    repaint(master, captured, ("Message Plexmaton",), ("Conversation tree",))
+    repaint(master, captured, (COMPOSER,), ("Conversation tree",))
 
 
 def run_smoke(model_url: str) -> int:

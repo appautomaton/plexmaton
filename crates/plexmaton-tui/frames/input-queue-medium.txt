@@ -34,7 +34,7 @@
  ↳ Also check the compaction path while you are in there
  ↳ and then summarize what changed
  Alt-↑ takes back the last one
-── Message Agent A · primary ──────────────────────────────────────────────────────────────────
+── Message ────────────────────────────────────────────────────────────────────────────────────
  Type a message · ⇥ to focus
 ───────────────────────────────────────────────────────────────────────────────────────────────
 

@@ -110,7 +110,7 @@ fn a_palette_is_a_complete_assignment_of_roles() {
 
 /// A theme supplies the twelve slots and reaches no further.
 ///
-/// Two halves, and the test fails on either. Every colour a role paints with came from a slot, so
+/// Two halves, and the test fails on either. Every colour a role paints with came from the slots, so
 /// reassigning the slots reassigns all of them and no role can be holding a colour of its own; and
 /// no role's weight or italic moves when only colours were supplied, so no colourway can take the
 /// bold off a failure or the quiet off work in progress.

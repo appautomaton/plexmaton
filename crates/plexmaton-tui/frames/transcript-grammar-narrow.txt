@@ -4,8 +4,8 @@
 │                                                          │
 │                                                          │
 │                                                          │
-│▌Change the colour constant and show me the patch you     │
-│▌applied.                                                 │
+│ › Change the colour constant and show me the patch       │
+│   you applied.                                           │
 │                                                          │
 │Done. The retained patch is below, with the reasoning     │
 │that led to it.                                           │
@@ -34,7 +34,7 @@
 │  │ +pub const COLOR: &str = "pastel";                    │
 │  │ *** End Patch                                         │
 │                                                          │
-── Message Plexmaton ───────────────────────────────────────
+── Message ─────────────────────────────────────────────────
  Type a message · ⇥ to focus                                
 ────────────────────────────────────────────────────────────
  ~/plexmaton                                                

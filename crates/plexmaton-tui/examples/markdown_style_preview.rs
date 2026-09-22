@@ -108,6 +108,7 @@ fn preview(
         configured_name: "fixture".into(),
         provider: "local".into(),
         model: "plexmaton-dev".into(),
+        display_name: "plexmaton-dev".into(),
         reasoning_effort: plexmaton_core::ReasoningEffort::High,
     });
     let agent = AgentId::new("primary")?;

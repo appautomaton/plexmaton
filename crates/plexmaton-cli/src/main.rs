@@ -156,6 +156,7 @@ fn configuration_summary(model: &plexmaton_provider::ResolvedModel) -> Configura
     ConfigurationSummary {
         provider: model.provider_name().to_owned(),
         model: model.wire_id().to_owned(),
+        display_name: model.display_name().to_owned(),
         configured_name: model.model_name().to_owned(),
         reasoning_effort: model.reasoning_effort(),
     }

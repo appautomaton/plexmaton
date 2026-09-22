@@ -300,16 +300,48 @@ pub(crate) fn append_source(
     }));
 }
 
-/// Which side of the conversation a message is on, said in the margin rather than in a word.
+/// Which side of the conversation a message is on, said by its surface rather than in a word.
 ///
 /// The two everyday roles carry no heading. `you` and `assistant` above every message is a label
 /// on something the shape of the screen already says, and it cost two of the rows a short exchange
-/// has. What separates them now is the margin: the user's turn wears a bar down its whole height,
-/// the agent's turn sits on the plain ground, and the blank row between them is the gap. The
-/// remaining kinds keep their word, because `reasoning`, `system`, `warning` and `error` are not
-/// positions in a conversation — they are things the reader has to be told (ui-ux §transcript
-/// grammar).
-const GUTTER: &str = "▌";
+/// has. What separates them now is the ground: the user's turn sits on a band across the
+/// conversation's width, opened by a chevron in the user's own hue, and the agent's turn sits on
+/// the plain ground. The remaining kinds keep their word, because `reasoning`, `system`, `warning`
+/// and `error` are not positions in a conversation — they are things the reader has to be told
+/// (ui-ux §transcript grammar). Rejected: an accent-coloured bar down the turn's height, which
+/// shouted in a colour that means something else.
+const OPENER: &str = " › ";
+
+/// Where every later row of the user's turn starts: under the text, not under the chevron.
+const HANG: &str = "   ";
+
+/// The columns a text entry gives up on its left: the user's hang, or nothing.
+fn margin(item: &TranscriptItemView) -> usize {
+    if item.kind == TranscriptTextKind::Message && item.role == TranscriptRole::User {
+        HANG.width()
+    } else {
+        0
+    }
+}
+
+/// Lay the user's turn on its band: the first row opens with the chevron, and every row, blank
+/// ones included, carries the band across the full width, the action gutter too, so the turn reads
+/// as one surface and the copy action sits on it.
+fn lay_on_band(lines: &mut [Line], width: usize) {
+    for (row, line) in lines.iter_mut().enumerate() {
+        if row == 0
+            && let Some(opening) = line.spans.first_mut()
+        {
+            *opening = Span::styled(OPENER, Role::SurfacePrimary);
+        }
+        for span in &mut line.spans {
+            span.style = std::mem::take(&mut span.style).patch(Role::UserMessage.into());
+        }
+        let rest = width.saturating_sub(line.width());
+        line.spans
+            .push(Span::styled(" ".repeat(rest), Role::UserMessage));
+    }
+}
 
 /// ENT-1: terminal reasoning newlines are source, not additional inter-entry spacing.
 fn literal_display_source(item: &TranscriptItemView) -> &str {
@@ -332,8 +364,7 @@ pub(crate) fn literal_text_rows(item: &TranscriptItemView, width: u16) -> Option
         return Some(0);
     }
     let (heading, _) = text_treatment(item);
-    let gutter = item.kind == TranscriptTextKind::Message && item.role == TranscriptRole::User;
-    let reserved = usize::from(width).saturating_sub(4 + usize::from(gutter));
+    let reserved = usize::from(width).saturating_sub(4 + margin(item));
     let body: usize = literal_display_source(item)
         .split('\n')
         .map(|line| crate::text_layout::wrap::count(line, reserved, false))
@@ -360,11 +391,8 @@ fn transcript_text_with_prefix(
     prefix: Option<&crate::markdown::PrefixHint>,
 ) -> (Layout, Option<crate::markdown::PrefixCheckpoint>, bool) {
     let (heading, body) = text_treatment(item);
-    let gutter = matches!(
-        (item.kind, item.role),
-        (TranscriptTextKind::Message, TranscriptRole::User)
-    );
-    let reserved = usize::from(width).saturating_sub(4 + usize::from(gutter));
+    let margin = margin(item);
+    let reserved = usize::from(width).saturating_sub(4 + margin);
 
     let markdown = matches!(
         (item.kind, item.role),
@@ -419,19 +447,23 @@ fn transcript_text_with_prefix(
     } else {
         literal_display_source(item)
     };
+    let first_body_row = layout.lines.len();
     for line in source.split('\n') {
         layout.logical(
             Line::styled(line.to_owned(), body),
             reserved,
             false,
-            if gutter { GUTTER } else { "" },
-            Role::Accent,
+            if margin > 0 { HANG } else { "" },
+            Role::SurfacePrimary,
         );
     }
     // split preserves explicit trailing line breaks; discard only the builder's final separator.
     layout.text.pop();
+    if margin > 0 {
+        lay_on_band(&mut layout.lines[first_body_row..], usize::from(width));
+    }
     for line in &mut layout.lines {
-        line.treatment = Treatment::SelectionWidth(reserved + usize::from(gutter));
+        line.treatment = Treatment::SelectionWidth(reserved + margin);
     }
     (layout, None, false)
 }
@@ -501,6 +533,57 @@ mod tests {
             assert_eq!(lines[0].to_string(), "handoff · Controller: User");
         }
         assert!(!discloses(&entry));
+    }
+
+    /// ui-ux §transcript grammar: the user's turn is told by its surface. Every row carries the band
+    /// across the full width, the first opens with the chevron in the user's own hue, later rows
+    /// hang under the text, nothing draws in the accent colour, and copy is still the source.
+    #[test]
+    fn the_users_turn_sits_on_a_band_across_the_full_width() {
+        let source = "Change the colour constant and show me the patch you applied.\nThanks.";
+        let item = TranscriptItemView {
+            id: TranscriptItemId::new("question").expect("id"),
+            source: source.into(),
+            role: TranscriptRole::User,
+            kind: TranscriptTextKind::Message,
+            revision: 0,
+            finalized: true,
+        };
+        let palette = Palette::pastel();
+        let band = palette.style(Role::UserMessage).bg;
+        assert!(band.is_some(), "the band is a background");
+        for width in [60_u16, 88, 120] {
+            let layout = transcript_text(&item, width, crate::math::MathPresentation::default());
+            assert_eq!(
+                layout.text, source,
+                "copy at {width} is the source, not the band"
+            );
+            let lines = layout.painted_lines(&palette);
+            assert!(lines.len() >= 2, "{width} columns");
+            for (row, line) in lines.iter().enumerate() {
+                assert_eq!(line.width(), usize::from(width), "row {row} at {width}");
+                for span in &line.spans {
+                    let style = line.style.patch(span.style);
+                    assert_eq!(style.bg, band, "row {row} at {width}: {:?}", span.content);
+                    assert_ne!(
+                        style.fg,
+                        palette.style(Role::Accent).fg,
+                        "row {row} at {width}"
+                    );
+                }
+                let text = line.to_string();
+                if row == 0 {
+                    assert!(text.starts_with(" › Change"), "{text:?}");
+                    let chevron = line.style.patch(line.spans[0].style);
+                    assert_eq!(chevron.fg, palette.style(Role::SurfacePrimary).fg);
+                } else {
+                    assert!(
+                        text.starts_with("   ") && !text.starts_with("    "),
+                        "row {row} at {width} hangs under the text: {text:?}"
+                    );
+                }
+            }
+        }
     }
 
     /// TR-1/MD-2: measurement-only geometry agrees with the actual paragraph at every small width.
