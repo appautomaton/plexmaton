@@ -480,7 +480,8 @@ fn a_requested_compaction_shows_on_the_activity_line_and_ends_with_a_note() {
     assert!(
         drawn
             .lines()
-            .last()
+            .rev()
+            .nth(1)
             .is_some_and(|row| row.contains(" Compacting…")),
         "{drawn}"
     );

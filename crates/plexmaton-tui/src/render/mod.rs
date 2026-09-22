@@ -101,39 +101,45 @@ pub fn render(
             // background rather than as a place, and its hue has no edge to say whose it is. Its
             // last row stays the activity line, carrying the selection note and the attention pill
             // as the box's footer rather than instead of a border (ui-ux §input).
-            SurfaceId::Transcript => Some(Panel {
-                insets: crate::surface::ContentInsets::default(),
-                chrome: Chrome::Box,
-                footer: Some(activity::activity_line(
+            SurfaceId::Transcript => {
+                let footer = activity::activity_footer(
                     state,
                     palette,
                     inner_width(bounds.width),
                     state.approval_in_primary() && surfaces.get(SurfaceId::Approval).is_some(),
-                )),
-                body: conversation_body(
-                    state,
-                    palette,
-                    metrics,
-                    bounds,
-                    id,
-                    stacking.over_composer(SurfaceId::Transcript),
-                    1,
-                ),
-                title: chrome::conversation_title(state, palette, inner_width(bounds.width)),
-                badge: None,
-                edges: stacking.over_composer(SurfaceId::Transcript),
-            }),
+                );
+                let footer_rows = footer
+                    .as_ref()
+                    .map_or(0, |lines| u16::try_from(lines.len()).unwrap_or(u16::MAX));
+                Some(Panel {
+                    insets: crate::surface::ContentInsets::default(),
+                    chrome: Chrome::Box,
+                    footer,
+                    body: conversation_body(
+                        state,
+                        palette,
+                        metrics,
+                        bounds,
+                        id,
+                        stacking.over_composer(SurfaceId::Transcript),
+                        footer_rows,
+                    ),
+                    title: chrome::conversation_title(state, palette, inner_width(bounds.width)),
+                    badge: None,
+                    edges: stacking.over_composer(SurfaceId::Transcript),
+                })
+            }
             // The inspected agent's conversation uses the same unified entry grammar as the
             // primary: the workspace shows one conversation, and the journey needs it to show two.
             SurfaceId::Inspector => Some(Panel {
                 insets: crate::surface::ContentInsets::default(),
                 chrome: Chrome::Box,
-                footer: Some(child_control::footer(
+                footer: Some(vec![child_control::footer(
                     state,
                     palette,
                     inner_width(bounds.width),
                     has_focus,
-                )),
+                )]),
                 body: conversation_body(
                     state,
                     palette,
@@ -172,7 +178,12 @@ pub fn render(
                 Some(composer_panel(state, palette, has_focus, bounds, &stacking))
             }
             SurfaceId::Status => {
-                render_status(frame, state, palette, bounds);
+                let activity_shown = activity::activity_shows(
+                    state,
+                    palette,
+                    state.approval_in_primary() && surfaces.get(SurfaceId::Approval).is_some(),
+                );
+                render_status(frame, state, palette, bounds, activity_shown);
                 None
             }
         };
@@ -601,12 +612,13 @@ mod tests {
                     viewport.is_scrollable(),
                     "the fixture has to overflow at {width}x{height} or this proves nothing"
                 );
-                // The conversation's last row is its activity line, not content (ui-ux §input);
-                // the reference paints only the rows the conversation itself occupies.
+                // The conversation's last two rows are its activity line and the blank row under
+                // it, not content (ui-ux §input); the reference paints only the conversation's rows.
                 let painted = session.region(SurfaceId::Transcript);
-                let (conversation, _activity) = painted
-                    .rsplit_once('\n')
-                    .unwrap_or_else(|| panic!("the region has an activity row under it"));
+                let rows: Vec<&str> = painted.lines().collect();
+                assert!(rows.len() > 2, "the region has an activity footer under it");
+                let conversation = rows[..rows.len() - 2].join("\n");
+                let conversation = conversation.as_str();
                 let reference = whole_conversation(
                     &session.conversation.state,
                     &Palette::default(),
@@ -647,9 +659,9 @@ mod tests {
         );
         // The conversation is boxed and open at the bottom, so its own border spends the top row
         // and the side columns and the content needs no padding of its own; the activity row is
-        // the panel's footer and stays out of the reference.
+        // the panel's footer, with the blank row beneath it, and stays out of the reference.
         let bounds = Rect {
-            height: bounds.height.saturating_sub(1),
+            height: bounds.height.saturating_sub(2),
             ..bounds
         };
         let paragraph = Paragraph::new(lines)
@@ -1454,9 +1466,9 @@ mod tests {
                 .get(SurfaceId::Transcript)
                 .expect("the conversation is registered at wide")
                 .bounds;
-            // The pill rides the activity line, the conversation's last row (ui-ux §input).
+            // The pill rides the activity line, above the conversation's last, blank row (ui-ux §input).
             let border = Rect {
-                y: conversation.bottom().saturating_sub(1),
+                y: conversation.bottom().saturating_sub(2),
                 height: 1,
                 ..conversation
             };

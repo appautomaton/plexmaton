@@ -1388,7 +1388,8 @@ mod tests {
         let activity = |terminal: &Terminal<TestBackend>, workspace: &Workspace| {
             painted(terminal, workspace, SurfaceId::Transcript)
                 .lines()
-                .last()
+                .rev()
+                .nth(1)
                 .unwrap_or_default()
                 .to_owned()
         };

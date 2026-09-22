@@ -45,9 +45,11 @@ MOT-1 to MOT-3 live in [motion](../specs/motion.md), promoted when the motion ow
    at 200 ms, which the user chose in their own terminal over the Unicode cycles that shook. It
    wears blue, the server-tool colour while a hosted search runs, and stands still in the
    action-required colour during approval. The readings are presentation: events are dated as they
-   are applied and the motion clock supplies the instant a frame is drawn for. Closed by refreshed
-   current-work frames, the readings and work-clock tests, MOT-2 for the mark, and the activity
-   smokes.
+   are applied and the motion clock supplies the instant a frame is drawn for. After the user's
+   first look in kitty the row gained a blank row beneath it and gives up its rows when idle with
+   nothing waiting; a selection note never opens them, and rides the status row while they are
+   closed. Closed by refreshed current-work frames, the readings, work-clock and footer-rows tests,
+   the selection drags that no longer move, MOT-2 for the mark, and the activity smokes.
 5. **Documents.** Evidence tables current; SVG review of the frames attached; this plan deleted;
    the phase row says done.
 

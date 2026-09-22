@@ -10,13 +10,13 @@
 │                                                                                             │
 │                                                                                             │
 │                                                                                             │
+│                                                                                             │
 │ › Original question                                                                         │
 │                                                                                             │
 │error                                                                                        │
 │Request was rate limited.                                                                    │
 │                                                                                             │
 │[ Retry ]   [ Edit & retry ] · r / e                                                         │
-│                                                                                             │
 │                                                                                             │
 ── Message ────────────────────────────────────────────────────────────────────────────────────
  Type a message · ⇥ to focus

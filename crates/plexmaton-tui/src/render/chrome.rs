@@ -110,6 +110,13 @@ pub(super) fn attention_pill(state: &ViewState, palette: &Palette) -> Option<Lin
 /// What a surface says about the selection it is holding.
 ///
 /// The retained selection is separate from transient transport feedback in the status row (SEL-5).
+/// What the primary conversation's selection note says, without its separator.
+pub(super) fn selection_note(state: &ViewState) -> Option<String> {
+    selected_suffix(state, SurfaceId::Transcript)
+        .strip_prefix(" · ")
+        .map(str::to_owned)
+}
+
 pub(super) fn selected_suffix(state: &ViewState, surface: SurfaceId) -> String {
     if let Some(note) = state.copy_note(surface) {
         use crate::state::CopyNote;
@@ -260,6 +267,7 @@ pub(super) fn render_status(
     state: &ViewState,
     palette: &Palette,
     area: Rect,
+    activity_shown: bool,
 ) {
     let status = state.status();
     match status.footer() {
@@ -299,7 +307,7 @@ pub(super) fn render_status(
         crate::state::Footer::Default => {}
     }
     if status.armed().is_none() && !matches!(status.footer(), crate::state::Footer::Default) {
-        render_copy_receipt(frame, state, palette, area);
+        render_copy_receipt(frame, state, palette, area, activity_shown);
         return;
     }
     // An armed question may need a second row; the cwd baseline never does.
@@ -326,16 +334,32 @@ pub(super) fn render_status(
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), area);
-    render_copy_receipt(frame, state, palette, area);
+    render_copy_receipt(frame, state, palette, area, activity_shown);
 }
 
-fn render_copy_receipt(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette, area: Rect) {
+/// The status row's right end: a copy receipt, or, while the activity line is closed, what the
+/// reader has selected, so selection feedback never has to open rows in the conversation.
+fn render_copy_receipt(
+    frame: &mut Frame<'_>,
+    state: &ViewState,
+    palette: &Palette,
+    area: Rect,
+    activity_shown: bool,
+) {
     if state.status().armed().is_some() || area.is_empty() {
         return;
     }
+    let note;
     let text = match state.status().copy_receipt() {
         Some(crate::CopyReceipt::Copied) => " ✓ Copied ",
         Some(crate::CopyReceipt::Sent) => " Copy sent ",
+        None if !activity_shown => match selection_note(state) {
+            Some(selected) => {
+                note = format!(" {selected} ");
+                note.as_str()
+            }
+            None => return,
+        },
         None => return,
     };
     let width = (Line::raw(text).width() as u16).min(area.width);

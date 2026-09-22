@@ -35,7 +35,8 @@ pub(super) struct Panel {
     pub(super) chrome: Chrome,
     pub(super) insets: ContentInsets,
     /// One row of the region's own, painted last inside it: the conversation's activity line.
-    pub(super) footer: Option<Line<'static>>,
+    /// The region's own last rows, top to bottom: they neither scroll nor count as content.
+    pub(super) footer: Option<Vec<Line<'static>>>,
 }
 
 /// How a region's edges are painted. The geometry is the edges'; this is only ink.
@@ -216,11 +217,14 @@ pub(super) fn draw_panel(
     let mut inside = chrome.inner(area);
     // The footer is the region's own last row, not content: it neither scrolls nor counts.
     let footer = match &panel.footer {
-        Some(line) if inside.height > 0 => {
-            inside.height = inside.height.saturating_sub(1);
+        Some(lines) if inside.height > 0 => {
+            let rows = u16::try_from(lines.len())
+                .unwrap_or(u16::MAX)
+                .min(inside.height);
+            inside.height = inside.height.saturating_sub(rows);
             Some((
-                Rect::new(inside.x, inside.bottom(), inside.width, 1),
-                line.clone(),
+                Rect::new(inside.x, inside.bottom(), inside.width, rows),
+                lines.clone(),
             ))
         }
         _ => None,
@@ -256,8 +260,8 @@ pub(super) fn draw_panel(
     };
 
     frame.render_widget(paragraph.scroll((scroll, 0)), inside);
-    if let Some((row, line)) = footer {
-        frame.render_widget(Paragraph::new(line), row);
+    if let Some((rows, lines)) = footer {
+        frame.render_widget(Paragraph::new(lines), rows);
     }
     viewport
 }

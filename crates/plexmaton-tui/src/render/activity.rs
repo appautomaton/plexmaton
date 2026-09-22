@@ -135,6 +135,37 @@ pub(crate) fn activity_line(
     Line::from(spans)
 }
 
+/// The activity line as the conversation's footer: the line and a blank row beneath it, so it
+/// never sits against the composer's rule, or no rows at all when it has nothing to say, so an idle
+/// conversation keeps its last reply one blank row from the composer (ui-ux §input).
+pub(crate) fn activity_footer(
+    state: &ViewState,
+    palette: &Palette,
+    width: u16,
+    approval_visible: bool,
+) -> Option<Vec<Line<'static>>> {
+    activity_shows(state, palette, approval_visible).then(|| {
+        vec![
+            activity_line(state, palette, width, approval_visible),
+            Line::default(),
+        ]
+    })
+}
+
+/// Whether the activity line takes its rows: while there is work to name or a request waiting.
+///
+/// Both come from the conversation, never from the pointer. A selection or a copy note that opened
+/// the rows would lift the whole bottom-anchored conversation two rows under the reader's drag;
+/// while the rows are closed those notes ride the status row instead.
+pub(crate) fn activity_shows(state: &ViewState, palette: &Palette, approval_visible: bool) -> bool {
+    let work = match state.current_work() {
+        None => false,
+        Some(CurrentWork::ApprovalRequired) => !approval_visible,
+        Some(_) => true,
+    };
+    work || attention_pill(state, palette).is_some()
+}
+
 /// The muted readings after the label, in display order and tagged with the slot that orders
 /// their dropping: elapsed (0), effort (1), quiet (2). Each is left out until it is known.
 fn activity_readings(state: &ViewState) -> Vec<(usize, String)> {
@@ -159,6 +190,54 @@ fn activity_readings(state: &ViewState) -> Vec<(usize, String)> {
 
 #[cfg(test)]
 mod tests {
+    use plexmaton_core::{
+        AgentId, AgentStatus, ConversationEvent, ConversationEventEnvelope, EventSequence,
+    };
+
+    use super::activity_footer;
+    use crate::{ViewState, theme::Palette};
+
+    fn apply(state: &mut ViewState, sequence: u64, event: ConversationEvent) {
+        let _ = state.apply(ConversationEventEnvelope {
+            sequence: EventSequence::new(sequence),
+            event,
+        });
+    }
+
+    /// ui-ux §input: an idle conversation with nothing waiting gives the activity line no rows;
+    /// work gives it its row and a blank one beneath, so it never sits against the composer.
+    #[test]
+    fn the_activity_line_takes_rows_only_while_there_is_work_or_a_request() {
+        let palette = Palette::default();
+        let primary = AgentId::new("primary").expect("identity");
+        let mut state = ViewState::default();
+        apply(
+            &mut state,
+            1,
+            ConversationEvent::AgentCreated {
+                agent_id: primary.clone(),
+                label: "Plexmaton".into(),
+                status: AgentStatus::Idle,
+            },
+        );
+        assert!(activity_footer(&state, &palette, 80, false).is_none());
+        apply(
+            &mut state,
+            2,
+            ConversationEvent::AgentStatusChanged {
+                agent_id: primary,
+                status: AgentStatus::Running,
+            },
+        );
+        let footer = activity_footer(&state, &palette, 80, false).expect("work opens the rows");
+        assert_eq!(footer.len(), 2);
+        assert!(footer[0].to_string().contains("Thinking…"));
+        assert!(
+            footer[1].spans.is_empty(),
+            "the second row is the blank one"
+        );
+    }
+
     use unicode_width::UnicodeWidthStr;
 
     use super::{MARK, PHASES_PER_FRAME, mark};

@@ -32,8 +32,8 @@ every entry it did not list.
 
 Cut below what it asked for, it lists fewer entries rather than losing the rows off its bottom, and
 the count grows to cover them; below its floor — its rule, one heading, one entry, that count and
-the way back — it takes no rows at all. Its top rule meets the activity row without an extra
-bottom border or blank row. It is chrome, so a row past its rectangle is a row with no
+the way back — it takes no rows at all. Its top rule follows the blank row the activity line keeps
+beneath itself, with no bottom border or blank row of its own. It is chrome, so a row past its rectangle is a row with no
 way to reach it: what it cannot show it must count, and the way back is the last row it gives up.
 Rejected: letting the rows it was granted simply clip its content, which drops the key in IQU-3
 first and leaves the title counting messages the band has stopped showing.

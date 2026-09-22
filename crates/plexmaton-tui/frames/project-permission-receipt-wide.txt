@@ -13,8 +13,8 @@
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
+│                                                                                                                      │
 │[-] exec_command · cancelled                                                                                          │
 │Warning · Project permission saved; tool did not run.                                                                 │
 │Review it under Ctrl-P · Permissions.                                                                                 │
 │                                                                                                                      │
-│                                                                                                            1 selected│

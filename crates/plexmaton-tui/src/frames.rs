@@ -153,7 +153,8 @@ mod tests {
         let conversation = surfaces
             .get(SurfaceId::Transcript)
             .unwrap_or_else(|| panic!("the conversation is registered at {width}x{height}"));
-        let top = conversation.bounds.bottom().saturating_sub(1);
+        // The activity line sits above its blank row, the conversation's last (ui-ux §input).
+        let top = conversation.bounds.bottom().saturating_sub(2);
         region_text(
             &buffer,
             Rect::new(
@@ -193,8 +194,8 @@ mod tests {
                 );
                 assert_eq!(
                     rows.count(),
-                    3,
-                    "{name}: the fixture is the activity line, then the composer's rules and body"
+                    4,
+                    "{name}: the fixture is the activity line, its blank row, then the composer's rules and body"
                 );
 
                 crate::test_support::assert_frame(&name, &drawn);
@@ -1525,11 +1526,11 @@ mod tests {
                 let conversation = surfaces
                     .get(SurfaceId::Transcript)
                     .unwrap_or_else(|| panic!("{width}x{height}: the conversation is registered"));
-                // The pill rides the activity line, the conversation's last row.
+                // The pill rides the activity line, above the conversation's last, blank row.
                 let border = region_text(
                     &buffer,
                     Rect {
-                        y: conversation.bounds.bottom().saturating_sub(1),
+                        y: conversation.bounds.bottom().saturating_sub(2),
                         height: 1,
                         ..conversation.bounds
                     },
@@ -1573,9 +1574,16 @@ mod tests {
                         },
                     ));
                     text.push('\n');
+                    // The primary's activity line keeps a blank row beneath it; a worker window's
+                    // footer is its last row.
+                    let footer = if surface.id == SurfaceId::Transcript {
+                        2
+                    } else {
+                        1
+                    };
                     Rect {
-                        y: bounds.bottom().saturating_sub(1),
-                        height: 1,
+                        y: bounds.bottom().saturating_sub(footer),
+                        height: footer,
                         ..bounds
                     }
                 }
@@ -1648,10 +1656,10 @@ mod tests {
             assert!(
                 region_text(
                     &buffer,
-                    Rect::new(band.bounds.x, band.bounds.y - 1, band.bounds.width, 1),
+                    Rect::new(band.bounds.x, band.bounds.y - 2, band.bounds.width, 1),
                 )
                 .contains("Responding"),
-                "{name}: the activity row must meet the waiting rule without an extra blank row"
+                "{name}: the activity row keeps one blank row above the waiting rule"
             );
             assert_eq!(
                 band.bounds.bottom(),

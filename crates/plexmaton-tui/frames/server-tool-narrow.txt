@@ -10,7 +10,6 @@
 │                                                          │
 │                                                          │
 │                                                          │
-│                                                          │
 │ › What is the latest stable Rust release, and when       │
 │   did it ship?                                           │
 │                                                          │
@@ -34,6 +33,7 @@
 │the Rust blog lists what it fixes.                        │
 │                                                          │
 │󰝦 Running web_search…                                     │
+│                                                          │
 ── Message ─────────────────────────────────────────────────
  Type a message · ⇥ to focus                                
 ────────────────────────────────────────────────────────────
