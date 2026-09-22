@@ -408,7 +408,9 @@ impl Launcher {
         cancel: JobCancellation,
     ) -> anyhow::Result<OpenedConversation> {
         anyhow::ensure!(!cancel.is_cancelled(), "session load cancelled");
-        let key = resolve_api_key(&self.model, std::env::var_os(self.model.api_key_env()))?;
+        let key = self
+            .models
+            .api_key_for(&self.model, std::env::var_os(self.model.api_key_env()))?;
         self.open_with_key(selection, agent, cancel, key).await
     }
 

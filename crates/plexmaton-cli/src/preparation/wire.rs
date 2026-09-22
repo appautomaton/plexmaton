@@ -459,3 +459,99 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod server_tool_tests {
+    use super::*;
+    use plexmaton_core::{
+        AgentId, AgentStatus, ConversationEvent, ConversationEventEnvelope, EventSequence,
+        ServerTool, ServerToolAction, ServerToolCall, ServerToolStatus, TranscriptItemId,
+    };
+    use plexmaton_tui::Workspace;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    fn screen(terminal: &Terminal<TestBackend>) -> String {
+        let buffer = terminal.backend().buffer();
+        (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// ENT-2/PRE-1: a running and a finished server tool row survive the same-build wire the
+    /// live workspace prepares through, and paint once the reply is admitted.
+    #[test]
+    fn server_tool_rows_prepare_through_the_wire_and_paint() {
+        let mut workspace = Workspace::default();
+        let agent = AgentId::new("primary").expect("agent");
+        let mut sequence = 0;
+        let mut emit = |workspace: &mut Workspace, event| {
+            sequence += 1;
+            workspace.emit(vec![ConversationEventEnvelope {
+                sequence: EventSequence::new(sequence),
+                event,
+            }]);
+        };
+        emit(
+            &mut workspace,
+            ConversationEvent::AgentCreated {
+                agent_id: agent.clone(),
+                label: "Plexmaton".into(),
+                status: AgentStatus::Running,
+            },
+        );
+        emit(
+            &mut workspace,
+            ConversationEvent::ServerToolCalled {
+                agent_id: agent.clone(),
+                item_id: TranscriptItemId::new("done").expect("item"),
+                item_revision: 0,
+                call: ServerToolCall {
+                    tool: ServerTool::WebSearch,
+                    action: ServerToolAction::Search {
+                        queries: vec!["latest stable Rust release".into()],
+                    },
+                    status: ServerToolStatus::Completed,
+                },
+            },
+        );
+        emit(
+            &mut workspace,
+            ConversationEvent::ServerToolStarted {
+                agent_id: agent,
+                item_id: TranscriptItemId::new("running").expect("item"),
+                tool: ServerTool::WebSearch,
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(88, 24)).expect("terminal");
+        for round in 0..8 {
+            workspace.draw(&mut terminal).expect("draw");
+            let Some(work) = workspace.take_preparation() else {
+                if !workspace.needs_draw() {
+                    break;
+                }
+                continue;
+            };
+            let pending = Pending::new(Ticket(round), work.requests).expect("admitted");
+            let bytes = prepare(&pending.bytes).expect("child prepared");
+            let reply = pending.decode_reply(&bytes).expect("reply matches request");
+            let results = reply.result.expect("prepared");
+            assert!(
+                workspace.complete_preparation(work.token, results),
+                "round {round}: the reply was not adopted"
+            );
+        }
+        workspace.draw(&mut terminal).expect("settled draw");
+        let text = screen(&terminal);
+        assert!(
+            text.contains("[+] web_search · latest stable Rust release"),
+            "{text}"
+        );
+        assert!(text.contains("[~] web_search · running"), "{text}");
+        assert!(!text.contains("Preparing text"), "{text}");
+    }
+}

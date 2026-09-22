@@ -3,12 +3,13 @@
 use plexmaton_agent::{
     AssistantBlock, AssistantOutput, BlockReplay, ContextAtom, ContextAtomValue, ModelRequest,
 };
+use plexmaton_core::ServerToolAction;
 use serde_json::{Value, json};
 
 use super::replay::{MessagePartKind, ResponseReplay};
 
 use crate::{
-    FunctionTool, ResolvedModel,
+    FunctionTool, ResolvedModel, ServerTool,
     codec::{EncodeError, RESPONSES_CODEC_ID, tool_output},
     degrade::{self, Carried},
 };
@@ -20,7 +21,7 @@ pub(crate) fn encode(
     max_output_tokens: Option<u32>,
 ) -> Result<Value, EncodeError> {
     let input = encode_input(model, request)?;
-    let tools: Vec<_> = tools
+    let mut tools: Vec<_> = tools
         .iter()
         .map(|tool| {
             json!({
@@ -32,6 +33,17 @@ pub(crate) fn encode(
             })
         })
         .collect();
+    // PRV-6: configuration named the capability; this dialect owns the spelling. Hosted tools
+    // follow the function tools so the order the owner reads in the body is the order declared.
+    tools.extend(
+        model
+            .server_tools()
+            .unwrap_or_default()
+            .iter()
+            .map(|tool| match tool {
+                ServerTool::WebSearch => json!({"type": "web_search"}),
+            }),
+    );
     let mut body = json!({
         "model": model.wire_id(),
         "input": input,
@@ -214,6 +226,32 @@ fn encode_assistant(
                 }
                 input.push(item);
             }
+            AssistantBlock::ServerToolCall { call, .. } => {
+                // The item is rebuilt from the record and the sidecar adds the provider's status.
+                // Its identity is retained and not sent: the one live route turns a replayed id
+                // into a result block the upstream refuses on an assistant message, and Meta
+                // documents the id as optional on replay (PRV-3).
+                let kind = match call.tool {
+                    ServerTool::WebSearch => "web_search_call",
+                };
+                let mut item = json!({
+                    "type": kind,
+                    "status": "completed",
+                    "action": web_search_action(&call.action),
+                });
+                if let Some(replay) = replay {
+                    let metadata: ResponseReplay = serde_json::from_str(replay.payload())
+                        .map_err(|_| EncodeError::InvalidReplayItem)?;
+                    let ResponseReplay::WebSearchCall { id: _, status } = metadata else {
+                        return Err(EncodeError::InvalidReplayItem);
+                    };
+                    if let Some(status) = status {
+                        item["status"] =
+                            serde_json::to_value(status).map_err(EncodeError::InvalidReplayJson)?;
+                    }
+                }
+                input.push(item);
+            }
         }
     }
     debug_assert!(
@@ -255,6 +293,7 @@ fn encode_text_replay(
             part,
             annotations,
         } => (id, phase, status, content_index, part, annotations),
+        ResponseReplay::WebSearchCall { .. } => return Err(EncodeError::InvalidReplayItem),
         ResponseReplay::EmptyMessage { id, phase, status } => {
             if !text.is_empty() {
                 return Err(EncodeError::InvalidReplayItem);
@@ -313,4 +352,22 @@ fn encode_text_replay(
         parts.push(content);
     }
     Ok(())
+}
+
+/// The wire's spelling of what a search did. `query` is kept beside `queries` because both
+/// spellings have been observed on live routes, and a replay should read as the item did.
+fn web_search_action(action: &ServerToolAction) -> Value {
+    match action {
+        ServerToolAction::Search { queries } => {
+            let mut value = json!({"type": "search", "queries": queries});
+            if let Some(first) = queries.first() {
+                value["query"] = Value::String(first.clone());
+            }
+            value
+        }
+        ServerToolAction::OpenPage { url } => json!({"type": "open_page", "url": url}),
+        ServerToolAction::FindInPage { url, pattern } => {
+            json!({"type": "find_in_page", "url": url, "pattern": pattern})
+        }
+    }
 }

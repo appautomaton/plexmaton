@@ -4,7 +4,7 @@ use std::{ffi::OsString, fs, path::PathBuf};
 
 use anyhow::Context as _;
 use plexmaton_core::AgentId;
-use plexmaton_provider::{resolve_api_key, resolve_home};
+use plexmaton_provider::resolve_home;
 use plexmaton_runtime::NativeToolCatalog;
 
 use crate::{
@@ -47,7 +47,9 @@ pub(super) async fn live_runtime_from_process(
         &plexmaton_file_tools::FileCancellation::new(),
     )
     .context("load AGENTS.md instructions")?;
-    let key = resolve_api_key(&model, std::env::var_os(model.api_key_env()))
+    let key = config
+        .models
+        .api_key_for(&model, std::env::var_os(model.api_key_env()))
         .context("resolve provider API key")?;
     let ripgrep = resolve_path_executable("rg", std::env::var_os("PATH").as_deref())?;
     let driver = std::env::current_exe()

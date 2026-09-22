@@ -8,7 +8,7 @@ use plexmaton_core::ReasoningEffort;
 use serde_json::{Value, json};
 
 use crate::{
-    EncodeError, FunctionTool, PromptCache, ResolvedModel,
+    EncodeError, FunctionTool, PromptCache, ResolvedModel, ServerTool,
     codec::tool_output,
     degrade::{self, Carried},
 };
@@ -33,8 +33,20 @@ pub(crate) fn encode(
     if !model.instructions().is_empty() {
         body["system"] = json!([{"type":"text","text":model.instructions()}]);
     }
-    if !tools.is_empty() {
-        body["tools"] = Value::Array(tools.iter().map(|tool| json!({"name":tool.name(),"description":tool.description(),"input_schema":tool.parameters()})).collect());
+    // PRV-6: configuration named the capability; this dialect owns the spelling. Hosted tools
+    // follow the function tools so the order the owner reads in the body is the order declared.
+    let mut declared: Vec<Value> = tools.iter().map(|tool| json!({"name":tool.name(),"description":tool.description(),"input_schema":tool.parameters()})).collect();
+    declared.extend(
+        model
+            .server_tools()
+            .unwrap_or_default()
+            .iter()
+            .map(|tool| match tool {
+                ServerTool::WebSearch => json!({"type":"web_search_20250305","name":"web_search"}),
+            }),
+    );
+    if !declared.is_empty() {
+        body["tools"] = Value::Array(declared);
         body["tool_choice"] = json!({"type":"auto"});
     }
     if model.prompt_cache() == PromptCache::Automatic {

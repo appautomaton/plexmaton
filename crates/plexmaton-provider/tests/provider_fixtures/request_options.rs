@@ -448,3 +448,87 @@ output_reserve_tokens = 512
         );
     }
 }
+
+/// PRV-6: a declared hosted tool is spelled by the dialect, after the function tools, and a model
+/// that declared none carries none. The three spellings are the wire's, asserted as JSON.
+#[test]
+fn prv_6_declared_hosted_tools_are_spelled_by_the_dialect_and_absent_otherwise() {
+    use serde_json::{Value, json};
+    let base = r#"
+active_model = { provider = "fixture", model = "searching" }
+[providers.fixture]
+base_url = "http://127.0.0.1:1/v1"
+api_key_env = "FIXTURE_KEY"
+api = "openai_responses"
+[providers.fixture.models.searching]
+id = "fixture"
+server_tools = ["web_search"]
+context_window_tokens = 8192
+max_output_tokens = 1024
+output_reserve_tokens = 512
+[providers.fixture.models.plain]
+id = "fixture"
+context_window_tokens = 8192
+max_output_tokens = 1024
+output_reserve_tokens = 512
+"#;
+    let (_, request) = open_agent("Hello.");
+    let hosted = |body: &Value| -> Vec<Value> {
+        body.get("tools")
+            .and_then(Value::as_array)
+            .map(|tools| {
+                tools
+                    .iter()
+                    .filter(|tool| {
+                        tool.get("type").and_then(Value::as_str) != Some("function")
+                            && tool.get("input_schema").is_none()
+                    })
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    for (api, spelling) in [
+        ("openai_responses", json!({"type": "web_search"})),
+        ("openai_chat_completions", json!({})),
+        (
+            "anthropic_messages",
+            json!({"type": "web_search_20250305", "name": "web_search"}),
+        ),
+    ] {
+        let registry = ModelRegistry::parse(&base.replace("openai_responses", api))
+            .unwrap_or_else(|error| panic!("{api}: {error}"));
+        let searching = registry.active_model();
+        let plain = registry.model("fixture", "plain").expect("plain");
+        let with_function = encode_request(searching, &request, &[read_tool()], None)
+            .unwrap_or_else(|error| panic!("{api}: {error}"));
+        let alone = encode_request(searching, &request, &[], None)
+            .unwrap_or_else(|error| panic!("{api}: {error}"));
+        let undeclared = encode_request(plain, &request, &[read_tool()], None)
+            .unwrap_or_else(|error| panic!("{api}: {error}"));
+        if api == "openai_chat_completions" {
+            assert_eq!(with_function["web_search_options"], spelling, "{api}");
+            assert_eq!(alone["web_search_options"], spelling, "{api}");
+            assert!(undeclared.get("web_search_options").is_none(), "{api}");
+            assert!(
+                hosted(&with_function).is_empty(),
+                "{api}: not a tool type here"
+            );
+        } else {
+            assert_eq!(hosted(&with_function), vec![spelling.clone()], "{api}");
+            assert_eq!(hosted(&alone), vec![spelling.clone()], "{api}");
+            assert!(hosted(&undeclared).is_empty(), "{api}");
+            let tools = with_function["tools"].as_array().expect("tools");
+            assert_eq!(tools.len(), 2, "{api}: one function tool, one hosted");
+            assert_eq!(
+                tools[1], spelling,
+                "{api}: hosted follows the function tools"
+            );
+            assert!(with_function.get("tool_choice").is_some(), "{api}");
+            assert!(
+                alone.get("tool_choice").is_some(),
+                "{api}: a hosted tool alone still names a choice"
+            );
+        }
+    }
+}

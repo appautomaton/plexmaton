@@ -84,7 +84,9 @@ fn count_entries(agent: &crate::AgentView) -> EntryCounts {
         .entries()
         .fold(EntryCounts::default(), |counts, entry| match entry {
             TranscriptEntryView::Text(_) | TranscriptEntryView::Handoff(_) => counts,
-            TranscriptEntryView::Tool(_) => EntryCounts {
+            // A call the provider ran is still a tool the model reached for; the row's colour,
+            // not the tally, says where it ran.
+            TranscriptEntryView::Tool(_) | TranscriptEntryView::ServerTool(_) => EntryCounts {
                 tools: counts.tools.saturating_add(1),
                 ..counts
             },

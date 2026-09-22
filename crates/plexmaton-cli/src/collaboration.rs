@@ -492,6 +492,8 @@ fn item_of(event: &ConversationEvent) -> Option<TranscriptItemId> {
         | ConversationEvent::TranscriptDelta { item_id, .. }
         | ConversationEvent::TranscriptItemFinalized { item_id, .. }
         | ConversationEvent::ToolCallChanged { item_id, .. }
+        | ConversationEvent::ServerToolStarted { item_id, .. }
+        | ConversationEvent::ServerToolCalled { item_id, .. }
         | ConversationEvent::TaskAssigned { item_id, .. }
         | ConversationEvent::MailDelivered { item_id, .. }
         | ConversationEvent::HandoffCompleted { item_id, .. }
@@ -518,6 +520,8 @@ const fn forwarded(event: &ConversationEvent) -> bool {
             | ConversationEvent::TranscriptDelta { .. }
             | ConversationEvent::TranscriptItemFinalized { .. }
             | ConversationEvent::ToolCallChanged { .. }
+            | ConversationEvent::ServerToolStarted { .. }
+            | ConversationEvent::ServerToolCalled { .. }
             | ConversationEvent::AttentionRequested { .. }
             | ConversationEvent::AttentionResolved { .. }
             | ConversationEvent::ArtifactAnnounced { .. }

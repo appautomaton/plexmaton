@@ -23,14 +23,13 @@ impl Spacing {
                 before_feedback: 1,
                 after_feedback: 0,
             },
-            (TranscriptEntryView::Tool(_), Some(TranscriptEntryView::Text(_)))
-                if !has_after_feedback =>
-            {
-                Self {
-                    before_feedback: 0,
-                    after_feedback: 1,
-                }
-            }
+            (
+                TranscriptEntryView::Tool(_) | TranscriptEntryView::ServerTool(_),
+                Some(TranscriptEntryView::Text(_)),
+            ) if !has_after_feedback => Self {
+                before_feedback: 0,
+                after_feedback: 1,
+            },
             _ => Self::default(),
         }
     }

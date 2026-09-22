@@ -1,8 +1,8 @@
 //! Typed entries in one agent's ordered transcript projection.
 
 use plexmaton_core::{
-    AgentId, ArtifactId, MailId, ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId,
-    TranscriptRole,
+    AgentId, ArtifactId, MailId, ServerTool, ServerToolAction, ServerToolCall, ToolCallId,
+    ToolCallStatus, ToolPresentation, TranscriptItemId, TranscriptRole,
 };
 
 use super::ReduceError;
@@ -56,6 +56,8 @@ pub enum TranscriptEntryView {
     Text(TranscriptItemView),
     /// One tool call throughout its lifecycle.
     Tool(ToolCallView),
+    /// One tool the provider ran on its own side, in the state it ended in.
+    ServerTool(ServerToolView),
     /// One announced durable work product.
     Artifact(ArtifactView),
     /// One delivered mail summary.
@@ -73,6 +75,7 @@ impl TranscriptEntryView {
         match self {
             Self::Text(item) => &item.id,
             Self::Tool(tool) => &tool.entry_id,
+            Self::ServerTool(view) => &view.entry_id,
             Self::Artifact(artifact) => &artifact.entry_id,
             Self::Mail(mail) => &mail.entry_id,
             Self::Task(task) => &task.entry_id,
@@ -86,6 +89,7 @@ impl TranscriptEntryView {
         match self {
             Self::Text(item) => item.revision,
             Self::Tool(tool) => tool.revision,
+            Self::ServerTool(view) => view.revision,
             Self::Artifact(artifact) => artifact.revision,
             Self::Mail(mail) => mail.revision,
             Self::Task(task) => task.revision,
@@ -105,6 +109,43 @@ pub struct ToolCallView {
     pub status: ToolCallStatus,
     pub presentation: ToolPresentation,
     pub revision: u64,
+}
+
+/// One call the provider ran inside a model call: running until the provider reports what it did.
+///
+/// Drawn in [`ToolCallView`]'s grammar and unlike it underneath: there is no call identity of ours
+/// to correlate, no admission, and two states rather than seven. It appears where the provider
+/// placed the call and finishes once; a reopened conversation holds only the finished call and
+/// shows it finished from the start (ENT-2).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ServerToolView {
+    pub entry_id: TranscriptItemId,
+    pub tool: ServerTool,
+    /// What the provider did and how it ended; absent while it is still running.
+    pub call: Option<ServerToolCall>,
+    pub revision: u64,
+}
+
+impl ServerToolView {
+    /// What the route reported, one fact per line, for disclosure and copy alike; `None` when it
+    /// reported nothing beyond that a call happened, which is one live route's search today.
+    #[must_use]
+    pub fn action_source(&self) -> Option<String> {
+        match &self.call.as_ref()?.action {
+            ServerToolAction::Search { queries } if queries.is_empty() => None,
+            ServerToolAction::Search { queries } => Some(
+                queries
+                    .iter()
+                    .map(|query| format!("query: {query}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+            ServerToolAction::OpenPage { url } => Some(format!("url: {url}")),
+            ServerToolAction::FindInPage { url, pattern } => {
+                Some(format!("url: {url}\npattern: {pattern}"))
+            }
+        }
+    }
 }
 
 /// Durable work product announced by an agent, referenced by pointer rather than copied inline.

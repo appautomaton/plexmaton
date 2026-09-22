@@ -1,6 +1,7 @@
 //! Completed message metadata, kept separately from authoritative semantic text.
 
 use plexmaton_agent::{ModelEvent, ProviderReplay};
+use plexmaton_core::{ServerTool, ServerToolAction, ServerToolCall, ServerToolStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -19,8 +20,10 @@ pub(super) enum MessagePhase {
 #[serde(rename_all = "snake_case")]
 pub(super) enum ItemStatus {
     InProgress,
+    Searching,
     Completed,
     Incomplete,
+    Failed,
 }
 
 fn item_status(item: &Value) -> Result<Option<ItemStatus>, DecodeError> {
@@ -49,6 +52,10 @@ pub(super) enum ResponseReplay {
         content_index: usize,
         part: MessagePartKind,
         annotations: Vec<Value>,
+    },
+    WebSearchCall {
+        id: Option<String>,
+        status: Option<ItemStatus>,
     },
 }
 
@@ -107,6 +114,95 @@ impl ResponsesDecoder {
             replay,
         });
         Ok(events)
+    }
+
+    /// A search the provider ran, reported whole on `output_item.done`. The action is semantic
+    /// content the record keeps and bounds (PRV-5); only the provider's identity and status become
+    /// replay metadata, the way a function call's do.
+    pub(super) fn web_search_call_done(
+        &mut self,
+        index: usize,
+        item: &Value,
+    ) -> Result<Vec<ModelEvent>, DecodeError> {
+        let action = item
+            .get("action")
+            .filter(|value| value.is_object())
+            .ok_or_else(|| {
+                DecodeError::UnsupportedEvent("web_search_call_without_action".to_owned())
+            })?;
+        let action = match string_field(action, "type")? {
+            "search" => {
+                // Both spellings arrive on live routes, sometimes together; a query is kept once,
+                // and an empty one is an action that arrived without a query rather than a query.
+                let mut queries: Vec<String> = action
+                    .get("queries")
+                    .and_then(Value::as_array)
+                    .map(|values| {
+                        values
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .filter(|query| !query.is_empty())
+                            .map(str::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if let Some(query) = action.get("query").and_then(Value::as_str)
+                    && !query.is_empty()
+                    && !queries.iter().any(|known| known == query)
+                {
+                    queries.insert(0, query.to_owned());
+                }
+                ServerToolAction::Search { queries }
+            }
+            "open_page" => ServerToolAction::OpenPage {
+                url: string_field(action, "url")?.to_owned(),
+            },
+            "find_in_page" => ServerToolAction::FindInPage {
+                url: string_field(action, "url")?.to_owned(),
+                pattern: string_field(action, "pattern")?.to_owned(),
+            },
+            other => {
+                return Err(DecodeError::UnsupportedEvent(format!(
+                    "web_search_call.action:{other}"
+                )));
+            }
+        };
+        retain_bytes(
+            &mut self.retained,
+            action.text_bytes(),
+            self.limits.max_retained_output_bytes,
+        )?;
+        // PRV-5: how the call ended is typed here, because the row that shows it says so in
+        // colour. A done item that still claims to be running is a wire defect, not a state.
+        let status = match item_status(item)? {
+            None | Some(ItemStatus::Completed) => ServerToolStatus::Completed,
+            Some(ItemStatus::Failed | ItemStatus::Incomplete) => ServerToolStatus::Failed,
+            Some(ItemStatus::InProgress) => {
+                return Err(DecodeError::UnsupportedEvent(
+                    "web_search_call.status:in_progress".to_owned(),
+                ));
+            }
+            Some(ItemStatus::Searching) => {
+                return Err(DecodeError::UnsupportedEvent(
+                    "web_search_call.status:searching".to_owned(),
+                ));
+            }
+        };
+        let call = ServerToolCall {
+            tool: ServerTool::WebSearch,
+            action,
+            status,
+        };
+        let metadata = ResponseReplay::WebSearchCall {
+            id: item.get("id").and_then(Value::as_str).map(str::to_owned),
+            status: item_status(item)?,
+        };
+        let replay = self.retain_replay(serde_json::to_string(&metadata)?)?;
+        let position = output_position(index, 0)?;
+        Ok(vec![
+            ModelEvent::ServerToolCall { position, call },
+            ModelEvent::Replay { position, replay },
+        ])
     }
 
     pub(super) fn message_done(

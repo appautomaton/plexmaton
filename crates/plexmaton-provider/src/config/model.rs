@@ -1,6 +1,7 @@
 //! Validated model request options and replay identity, independent of registry lookup.
 use super::{
-    ConfigError, ModelApi, ModelCost, PromptCache, RawModel, ReasoningEffort, TokenEstimator,
+    ConfigError, ModelApi, ModelCost, PromptCache, RawModel, ReasoningEffort, ServerTool,
+    TokenEstimator,
 };
 use plexmaton_agent::{
     ProviderCodecId, ProviderCodecRevision, ProviderModelFamilyId, ProviderReplayOwnerId,
@@ -34,6 +35,7 @@ pub struct ResolvedModel {
     api_key_env: String,
     reasoning_effort: ReasoningEffort,
     allowed_reasoning_efforts: Option<Vec<ReasoningEffort>>,
+    server_tools: Option<Vec<ServerTool>>,
     instructions: String,
     workspace_instructions: WorkspaceInstructions,
     prompt_cache: PromptCache,
@@ -106,6 +108,7 @@ impl ResolvedModel {
             api_key_env: api_key_env.to_owned(),
             reasoning_effort: model.reasoning_effort,
             allowed_reasoning_efforts: model.allowed_reasoning_efforts,
+            server_tools: model.server_tools,
             instructions: model.instructions,
             workspace_instructions: WorkspaceInstructions::default(),
             prompt_cache: model.prompt_cache,
@@ -155,6 +158,7 @@ impl ResolvedModel {
             return Err(self.invalid_option("instructions"));
         }
         self.validate_reasoning_efforts()?;
+        self.validate_server_tools()?;
         if self.api == ModelApi::GoogleGenerateContent
             && !self
                 .wire_id
@@ -205,6 +209,21 @@ impl ResolvedModel {
             {
                 return Err(self.invalid_option("reasoning_effort"));
             }
+        }
+        Ok(())
+    }
+
+    fn validate_server_tools(&self) -> Result<(), ConfigError> {
+        // Absent means none, so an empty list is a mistake rather than a quiet no. The dialect
+        // decides which names it can spell; a tool it cannot is refused here, before any request
+        // exists, because the wire may accept the spelling and ignore it without a word.
+        if let Some(tools) = &self.server_tools
+            && (tools.is_empty()
+                || tools.iter().enumerate().any(|(i, tool)| {
+                    !self.api.spells_server_tool(*tool) || tools[..i].contains(tool)
+                }))
+        {
+            return Err(self.invalid_option("server_tools"));
         }
         Ok(())
     }
@@ -279,6 +298,13 @@ impl ResolvedModel {
     #[must_use]
     pub fn allowed_reasoning_efforts(&self) -> Option<&[ReasoningEffort]> {
         self.allowed_reasoning_efforts.as_deref()
+    }
+
+    /// Hosted tools the owner declared this route accepts, in configuration order; absent means
+    /// none. The dialect spells each one; nothing here is inferred from a name.
+    #[must_use]
+    pub fn server_tools(&self) -> Option<&[ServerTool]> {
+        self.server_tools.as_deref()
     }
 
     #[must_use]

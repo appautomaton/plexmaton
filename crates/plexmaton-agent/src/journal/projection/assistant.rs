@@ -68,6 +68,16 @@ impl Projector {
                     );
                     calls.push(call_id);
                 }
+                // The record holds only the finished call, so here it is the whole entry: the
+                // same row the live step finished at revision one, at revision zero (ENT-2).
+                AssistantBlock::ServerToolCall { item_id, call } => {
+                    self.emit(ConversationEvent::ServerToolCalled {
+                        agent_id: agent_id.clone(),
+                        item_id: item_id.clone(),
+                        item_revision: 0,
+                        call: call.clone(),
+                    })?;
+                }
                 AssistantBlock::Text { .. }
                 | AssistantBlock::Reasoning { .. }
                 | AssistantBlock::ReplayOnly { .. } => {}

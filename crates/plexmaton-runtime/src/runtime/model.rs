@@ -39,7 +39,10 @@ impl ModelOutput {
             ModelEvent::TextDelta { delta, .. } | ModelEvent::ReasoningDelta { delta, .. } => {
                 !delta.is_empty()
             }
-            ModelEvent::Replay { .. } | ModelEvent::Called { .. } => true,
+            ModelEvent::Replay { .. }
+            | ModelEvent::Called { .. }
+            | ModelEvent::ServerToolStarted { .. }
+            | ModelEvent::ServerToolCall { .. } => true,
             ModelEvent::Usage(_) | ModelEvent::Stopped(_) => {
                 unreachable!("ModelOutput excludes terminal and accounting events")
             }

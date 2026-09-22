@@ -21,6 +21,8 @@ mod gemini;
 mod messages;
 #[path = "provider_fixtures/request_options.rs"]
 mod request_options;
+#[path = "provider_fixtures/server_tools.rs"]
+mod server_tools;
 mod support;
 #[path = "provider_fixtures/usage_boundaries.rs"]
 mod usage_boundaries;
@@ -34,6 +36,7 @@ const CHAT_TOOL_CALL: &str = include_str!("fixtures/chat_tool_call.sse");
 const CHAT_FINAL_ANSWER: &str = include_str!("fixtures/chat_final_answer.sse");
 const RESPONSES_TOOL_CALL: &str = include_str!("fixtures/responses_tool_call.sse");
 const RESPONSES_FINAL_ANSWER: &str = include_str!("fixtures/responses_final_answer.sse");
+const RESPONSES_WEB_SEARCH: &str = include_str!("fixtures/responses_web_search.sse");
 
 #[tokio::test]
 async fn prv_1_chat_fixture_drives_a_full_stateless_tool_round_trip() {
@@ -940,4 +943,140 @@ fn replay_codec(value: &str) -> ProviderCodecId {
 fn replay_model_family(value: &str) -> ProviderModelFamilyId {
     ProviderModelFamilyId::new(value)
         .unwrap_or_else(|error| panic!("fixture model family: {error:?}"))
+}
+
+/// PRV-5: a search the provider ran arrives as a server-tool call carrying what it did, its
+/// progress markers are ignored, and the turn still ends as an answer rather than a tool request.
+/// The fixture is sanitized from a live stream through the local gateway, with the second call's
+/// action changed to an opened page so both observed kinds are exercised.
+#[tokio::test]
+async fn prv_5_responses_web_search_call_is_carried_as_a_server_tool_call() {
+    use plexmaton_core::{ServerTool, ServerToolAction};
+    let profile = profile(ModelApi::OpenaiResponses);
+    let (mut agent, _) = open_agent("What is the latest stable Rust release?");
+    let events = decode_fixture(&profile, RESPONSES_WEB_SEARCH, &[3, 17, 64]).await;
+
+    let calls: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            ModelEvent::ServerToolCall { position, call } => Some((position.item(), call.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(calls.len(), 2, "{events:?}");
+    // Each call was placed when the provider began it, before its finished item, so the row sits
+    // where the provider put the call and not where the route chose to finish it.
+    let started: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            ModelEvent::ServerToolStarted { position, .. } => Some(position.item()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(started, [1, 3], "{events:?}");
+    for item in [1, 3] {
+        let placed = events.iter().position(|event| {
+            matches!(event, ModelEvent::ServerToolStarted { position, .. } if position.item() == item)
+        });
+        let finished = events.iter().position(|event| {
+            matches!(event, ModelEvent::ServerToolCall { position, .. } if position.item() == item)
+        });
+        assert!(
+            placed < finished,
+            "item {item}: {placed:?} then {finished:?}"
+        );
+    }
+    assert_eq!(calls[0].0, 1);
+    assert_eq!(calls[0].1.tool, ServerTool::WebSearch);
+    assert_eq!(
+        calls[0].1.status,
+        plexmaton_core::ServerToolStatus::Completed
+    );
+    assert_eq!(
+        calls[0].1.action,
+        ServerToolAction::Search {
+            queries: vec!["latest stable Rust release".to_owned()]
+        },
+        "one query, spelled twice on the wire, kept once"
+    );
+    assert_eq!(calls[1].0, 3);
+    assert_eq!(
+        calls[1].1.action,
+        ServerToolAction::OpenPage {
+            url: "https://blog.rust-lang.org/releases/".to_owned()
+        }
+    );
+    // Each call's identity and status ride beside it as replay, never as semantic text.
+    for item in [1_u16, 3] {
+        assert!(
+            events.iter().any(|event| matches!(event, ModelEvent::Replay { position, .. } if position.item() == item)),
+            "call at item {item} has a replay sidecar"
+        );
+    }
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, ModelEvent::Called { .. })),
+        "nothing here asks the harness to run a tool"
+    );
+    assert_eq!(
+        visible_text(&events),
+        "Checking the release page. The latest stable Rust release is 1.98.1."
+    );
+    assert!(matches!(
+        events.last(),
+        Some(ModelEvent::Stopped(StopReason::EndOfTurn))
+    ));
+    // The route reports no cache-write count, so this usage is partial coverage; what the test
+    // cares about is that it arrived.
+    assert!(!matches!(reported_usage(&events), TokenUsage::Unavailable));
+    // The agent records the turn: both calls become blocks beside the text, and nothing is queued.
+    complete_answer(&mut agent, &events);
+
+    // PRV-3: the next request replays each call as the item it was, status from the sidecar and
+    // action from the record, in the order the provider produced them. The provider's id stays in
+    // the sidecar: the one live route turns a replayed id into a result block the upstream refuses,
+    // and Meta documents the id as optional.
+    use serde_json::{Value, json};
+    let reaction = agent.handle_at(
+        plexmaton_agent::Input::Submitted {
+            text: "Repeat the version.".to_owned(),
+        },
+        plexmaton_agent::UnixMillis::EPOCH,
+    );
+    let [plexmaton_agent::Effect::CallModel(next)] = reaction.effects.as_slice() else {
+        panic!(
+            "follow-up should open one model request: {:?}",
+            reaction.effects
+        );
+    };
+    let body = encode_request(&profile, &next.request, &[], None)
+        .unwrap_or_else(|error| panic!("follow-up should encode: {error}"));
+    let input = body["input"].as_array().expect("input array");
+    let kinds: Vec<&str> = input
+        .iter()
+        .map(|item| item["type"].as_str().unwrap_or(""))
+        .collect();
+    let first_search = kinds.iter().position(|kind| *kind == "web_search_call");
+    let first_message = kinds.iter().position(|kind| *kind == "message");
+    assert!(
+        first_search < first_message,
+        "the search precedes the answer it informed: {kinds:?}"
+    );
+    let searches: Vec<&Value> = input
+        .iter()
+        .filter(|item| item["type"] == "web_search_call")
+        .collect();
+    assert_eq!(searches.len(), 2, "{kinds:?}");
+    assert!(searches[0].get("id").is_none(), "{:?}", searches[0]);
+    assert_eq!(searches[0]["status"], "completed");
+    assert_eq!(
+        searches[0]["action"],
+        json!({"type": "search", "query": "latest stable Rust release", "queries": ["latest stable Rust release"]})
+    );
+    assert!(searches[1].get("id").is_none(), "{:?}", searches[1]);
+    assert_eq!(
+        searches[1]["action"],
+        json!({"type": "open_page", "url": "https://blog.rust-lang.org/releases/"})
+    );
 }

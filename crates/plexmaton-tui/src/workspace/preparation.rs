@@ -282,6 +282,13 @@ fn snapshot_bytes(entry: &crate::TranscriptEntryView) -> usize {
                 + tool.presentation.invocation.as_ref().map_or(0, detail)
                 + tool.presentation.outcome.as_ref().map_or(0, detail)
         }
+        Entry::ServerTool(view) => {
+            view.tool.name().len()
+                + view
+                    .call
+                    .as_ref()
+                    .map_or(0, |call| call.action.text_bytes())
+        }
         Entry::Artifact(artifact) => {
             artifact.id.as_str().len() + artifact.label.len() + artifact.pointer.len()
         }

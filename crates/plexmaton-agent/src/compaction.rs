@@ -514,7 +514,9 @@ fn validate_complete_output(
                     .ok_or(CompactionPlanError::SummaryTooLarge)?;
                 has_summary_text |= !text.trim().is_empty();
             }
-            AssistantBlock::Reasoning { .. } | AssistantBlock::ReplayOnly { .. } => {}
+            AssistantBlock::Reasoning { .. }
+            | AssistantBlock::ReplayOnly { .. }
+            | AssistantBlock::ServerToolCall { .. } => {}
             AssistantBlock::ToolCall { .. } => unreachable!("tool calls were rejected above"),
         }
     }

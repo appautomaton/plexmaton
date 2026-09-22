@@ -250,3 +250,45 @@ fn tool_batch_rechecks_persisted_result_bounds() {
         }
     }
 }
+
+/// A server-tool call's provider-authored text is bounded like tool arguments and counted with them.
+#[test]
+fn server_tool_calls_share_the_tool_argument_bound() {
+    use plexmaton_core::{ServerTool, ServerToolAction, ServerToolCall};
+    let search = |name: &str, bytes: usize| AssistantBlock::ServerToolCall {
+        item_id: item(name),
+        call: ServerToolCall {
+            tool: ServerTool::WebSearch,
+            action: ServerToolAction::Search {
+                queries: vec!["q".repeat(bytes)],
+            },
+            status: plexmaton_core::ServerToolStatus::Completed,
+        },
+    };
+    assert!(
+        AssistantOutput::new(
+            vec![search("at-bound", crate::MAX_REQUESTED_TOOL_ARGUMENT_BYTES)],
+            None
+        )
+        .is_ok()
+    );
+    assert_eq!(
+        AssistantOutput::new(
+            vec![search(
+                "over-bound",
+                crate::MAX_REQUESTED_TOOL_ARGUMENT_BYTES + 1
+            )],
+            None
+        ),
+        Err(ContextError::ToolArgumentsTooLarge)
+    );
+    let each = 60 * 1024;
+    let blocks: Vec<_> = (0..9)
+        .map(|index| search(&format!("aggregate-{index}"), each))
+        .collect();
+    assert!(each * 9 > MAX_ASSISTANT_TOOL_ARGUMENT_BYTES);
+    assert_eq!(
+        AssistantOutput::new(blocks, None),
+        Err(ContextError::ToolArgumentsTooLarge)
+    );
+}

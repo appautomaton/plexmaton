@@ -1,6 +1,6 @@
 # Current frontier series; select the exact route/model pair your account can access.
 # These conservative local budgets are below the models' published ceilings.
-# Credentials come only from the named environment variables.
+# A route names the environment variable that holds its credential, or sets api_key itself.
 # Native Astra tool conversations require Responses.
 active_model = { provider = "openai", model = "responses" }
 
@@ -16,6 +16,7 @@ context_window_tokens = 32768
 max_output_tokens = 4096
 output_reserve_tokens = 4096
 instructions = "You are a coding assistant. Preserve tool results accurately."
+# server_tools = ["web_search"] # A search the route runs itself; declare it only if the route accepts it.
 # Example only, USD per million tokens; replace with the selected model's actual rates:
 # cost = { input = 1.0, output = 2.0, cache_read = 0.1, cache_write = 1.25 }
 

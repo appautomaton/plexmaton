@@ -2,7 +2,7 @@
 //!
 //! A [`Slots`] is twelve colours named for where each sits — a ground ramp and eight hues around
 //! the wheel — and is the only thing a theme supplies. A [`Role`] is what a colour *means* here,
-//! and [`Palette::from_slots`] is the one place the sixteen roles are spent on those twelve slots.
+//! and [`Palette::from_slots`] is the one place the seventeen roles are spent on those twelve slots.
 //! Widgets name a role and never a colour, so a theme changes how the product looks and never what
 //! it says. [`Palette::pastel`] is the shipped assignment, not a closed set.
 
@@ -68,8 +68,8 @@ impl Slots {
             cyan: Color::Rgb(120, 210, 205),
             blue: Color::Rgb(130, 180, 240),
             // The value two separate places arrived at on their own while this slot did not exist.
-            purple: Color::Rgb(0xC8, 0xB3, 0xEA),
-            magenta: Color::Rgb(0xE7, 0x8D, 0xCC),
+            purple: Color::Rgb(0x8B, 0x5C, 0xF6),
+            magenta: Color::Rgb(0xD9, 0x46, 0xEF),
         }
     }
 
@@ -133,6 +133,10 @@ pub enum Role {
     ActionRequired,
     /// A failed agent, or a producer that broke the event contract.
     Failure,
+    /// Work a provider did on its own side, outside the fence: the marker of a server tool call
+    /// that ended well. One that failed wears `Failure`, because a failure is one wherever it ran;
+    /// the tool's name beside the marker still says which it was.
+    ServerTool,
     /// Content the user has selected for copying.
     Selection,
     /// The row the next `Enter` acts on: a bar, weight and a hue together, so it is found at a
@@ -142,7 +146,7 @@ pub enum Role {
 
 impl Role {
     /// Every role, used by tests and by palette completeness checks.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 17] = [
         Self::Body,
         Self::Muted,
         Self::Border,
@@ -157,6 +161,7 @@ impl Role {
         Self::NewInformation,
         Self::ActionRequired,
         Self::Failure,
+        Self::ServerTool,
         Self::Selection,
         Self::Chosen,
     ];
@@ -254,12 +259,13 @@ pub struct Palette {
     new_information: Style,
     action_required: Style,
     failure: Style,
+    server_tool: Style,
     selection: Style,
     chosen: Style,
 }
 
 impl Palette {
-    /// Spends the sixteen roles on a theme's twelve slots.
+    /// Spends the seventeen roles on a theme's twelve slots.
     ///
     /// This mapping is the product's half of the palette and lives in exactly one place. A theme
     /// supplies colours and reaches no further, so no colourway can make a failure read as a
@@ -291,6 +297,11 @@ impl Palette {
             new_information: Style::new().fg(slots.green),
             action_required: Style::new().fg(slots.orange).add_modifier(Modifier::BOLD),
             failure: Style::new().fg(slots.red).add_modifier(Modifier::BOLD),
+            // Purple was the wheel's unspent hue, so what the provider did on its side gets a
+            // colour no other meaning shares; no weight, because it is finished work, not a call
+            // on the user. The user chose the shade on 2026-09-21 against violet, magenta and the
+            // slot's earlier lavender.
+            server_tool: Style::new().fg(slots.purple),
             selection: SELECTION,
             chosen: Style::new()
                 .fg(slots.yellow)
@@ -324,18 +335,19 @@ impl Palette {
             new_information: style(Role::NewInformation),
             action_required: style(Role::ActionRequired),
             failure: style(Role::Failure),
+            server_tool: style(Role::ServerTool),
             selection: style(Role::Selection),
             chosen: style(Role::Chosen),
         }
     }
 
-    /// The shipped palette: [`Slots::designed`] spent on the sixteen roles.
+    /// The shipped palette: [`Slots::designed`] spent on the seventeen roles.
     ///
     /// A role says what a thing is — blue for where you are, cyan for work in progress, green for
     /// what finished, orange for what needs you, red for what failed, yellow for what `Enter` acts
-    /// on. Weight makes titles and the chosen row read first; a low-saturation hue with no weight
-    /// on it is what keeps work in progress quiet, because a slant would draw the eye `Ambient`
-    /// exists to spare.
+    /// on, purple for what the provider did on its own side. Weight makes titles and the chosen
+    /// row read first; a low-saturation hue with no weight on it is what keeps work in progress
+    /// quiet, because a slant would draw the eye `Ambient` exists to spare.
     /// It differs from any other assignment of the same slots in one way only: its Markdown is
     /// designed for reading rather than inherited from the roles (MD-5).
     ///
@@ -408,6 +420,7 @@ impl Palette {
             Role::NewInformation => self.new_information,
             Role::ActionRequired => self.action_required,
             Role::Failure => self.failure,
+            Role::ServerTool => self.server_tool,
             Role::Selection => self.selection,
             Role::Chosen => self.chosen,
         }

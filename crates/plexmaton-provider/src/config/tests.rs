@@ -283,15 +283,39 @@ reasoning_effort = "xhigh"
         ModelRegistry::parse(legacy),
         Err(ConfigError::Toml)
     ));
+}
 
-    let inline_key = LOCAL_CONFIG.replace(
+#[test]
+fn prv_6_inline_key_is_used_when_its_environment_variable_is_absent() {
+    let source = LOCAL_CONFIG.replace(
         "api_key_env = \"PLEXMATON_LOCAL_API_KEY\"",
         "api_key_env = \"PLEXMATON_LOCAL_API_KEY\"\napi_key = \"inline-secret\"",
     );
-    let error = ModelRegistry::parse(&inline_key).expect_err("inline key must be rejected");
-    assert!(matches!(&error, ConfigError::Toml));
+    let registry = ModelRegistry::parse(&source).expect("inline key is part of the route");
+    let model = registry.active_model();
+    let rendered = format!("{model:?}\n{registry:?}");
+    assert!(!rendered.contains("inline-secret"));
+    let key = registry
+        .api_key_for(model, None)
+        .expect("file token supplies the absent variable");
+    assert_eq!(key.expose(), "inline-secret");
+    assert_eq!(format!("{key:?}"), "ApiKey([REDACTED])");
+    let overridden = registry
+        .api_key_for(model, Some("from-env".into()))
+        .expect("environment still overrides the file");
+    assert_eq!(overridden.expose(), "from-env");
+
+    let unsafe_key = LOCAL_CONFIG.replace(
+        "api_key_env = \"PLEXMATON_LOCAL_API_KEY\"",
+        "api_key_env = \"PLEXMATON_LOCAL_API_KEY\"\napi_key = \"not header safe\"",
+    );
+    let error = ModelRegistry::parse(&unsafe_key).expect_err("unsafe token must be rejected");
+    assert!(matches!(
+        &error,
+        ConfigError::InvalidInlineApiKey(provider) if provider == "local"
+    ));
     let diagnostics = format!("{error}\n{error:?}");
-    assert!(!diagnostics.contains("inline-secret"));
+    assert!(!diagnostics.contains("not header safe"));
 }
 
 #[test]
@@ -476,5 +500,94 @@ fn prv_6_provider_example_selects_each_documented_dialect() {
                 .api(),
             api
         );
+    }
+}
+
+/// PRV-6: a hosted tool is declared per model, and absent unless declared.
+#[test]
+fn prv_6_hosted_tools_are_declared_per_model_and_absent_by_default() {
+    let source = LOCAL_CONFIG.replace(
+        "reasoning_effort = \"xhigh\"",
+        "reasoning_effort = \"xhigh\"\nserver_tools = [\"web_search\"]",
+    );
+    let registry = ModelRegistry::parse(&source).expect("declared hosted search");
+    assert_eq!(
+        registry.active_model().server_tools(),
+        Some([super::ServerTool::WebSearch].as_slice())
+    );
+    assert_eq!(
+        registry.model("local", "sol").expect("Sol").server_tools(),
+        None
+    );
+}
+
+/// PRV-6: a declaration fails closed at config load, on the active model and an inactive one alike.
+#[test]
+fn prv_6_hosted_tool_declarations_fail_closed() {
+    for list in ["[]", "[\"web_search\", \"web_search\"]"] {
+        let source = LOCAL_CONFIG.replace(
+            "reasoning_effort = \"xhigh\"",
+            &format!("reasoning_effort = \"xhigh\"\nserver_tools = {list}"),
+        );
+        assert!(
+            matches!(
+                ModelRegistry::parse(&source),
+                Err(ConfigError::InvalidRequestOption {
+                    field: "server_tools",
+                    ..
+                })
+            ),
+            "{list}"
+        );
+    }
+    // A name the catalog does not know is a parse error, never a tool quietly left out.
+    let source = LOCAL_CONFIG.replace(
+        "reasoning_effort = \"xhigh\"",
+        "reasoning_effort = \"xhigh\"\nserver_tools = [\"web_fetch\"]",
+    );
+    assert!(matches!(
+        ModelRegistry::parse(&source),
+        Err(ConfigError::Toml)
+    ));
+    let source = LOCAL_CONFIG.replace(
+        "reasoning_effort = \"high\"",
+        "reasoning_effort = \"high\"\nserver_tools = []",
+    );
+    assert!(
+        matches!(ModelRegistry::parse(&source), Err(ConfigError::InvalidRequestOption { model, .. }) if model == "sol")
+    );
+}
+
+/// PRV-6: the gate is the dialect's spelling, not the dialect. Three spell web search today, and
+/// GenerateContent's tool is unmeasured, so it is refused rather than guessed.
+#[test]
+fn prv_6_hosted_tool_declarations_need_a_dialect_spelling() {
+    for (api, accepted) in [
+        ("openai_responses", true),
+        ("openai_chat_completions", true),
+        ("anthropic_messages", true),
+        ("google_generate_content", false),
+    ] {
+        let source = LOCAL_CONFIG
+            .replace("api = \"openai_responses\"", &format!("api = \"{api}\""))
+            .replace(
+                "reasoning_effort = \"xhigh\"",
+                "reasoning_effort = \"high\"\nserver_tools = [\"web_search\"]",
+            );
+        match (accepted, ModelRegistry::parse(&source)) {
+            (true, Ok(registry)) => assert_eq!(
+                registry.active_model().server_tools(),
+                Some([super::ServerTool::WebSearch].as_slice()),
+                "{api}"
+            ),
+            (
+                false,
+                Err(ConfigError::InvalidRequestOption {
+                    field: "server_tools",
+                    ..
+                }),
+            ) => {}
+            (_, other) => panic!("{api}: unexpected {other:?}"),
+        }
     }
 }

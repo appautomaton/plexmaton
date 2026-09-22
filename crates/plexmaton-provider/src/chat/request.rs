@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use super::{ChatReplay, ReasoningField};
 
 use crate::{
-    FunctionTool, ResolvedModel,
+    FunctionTool, ResolvedModel, ServerTool,
     codec::{EncodeError, tool_output},
     degrade::{self, Carried},
 };
@@ -49,6 +49,13 @@ pub(crate) fn encode(
     if !tools.is_empty() {
         body["tools"] = Value::Array(tools);
         body["tool_choice"] = Value::String("auto".to_owned());
+    }
+    // PRV-6: Chat Completions spells hosted search as the request field OpenAI's own search
+    // models take, not as a tool type, which is where this dialect's schema puts it.
+    for tool in model.server_tools().unwrap_or_default() {
+        match tool {
+            ServerTool::WebSearch => body["web_search_options"] = json!({}),
+        }
     }
     if let Some(limit) = max_output_tokens {
         body["max_completion_tokens"] = Value::from(limit);
@@ -229,6 +236,9 @@ fn encode_assistant(
                     },
                 }));
             }
+            // Reached only with a compatible replay, which this dialect never produced: a foreign
+            // model's search is degraded away before encoding (PRV-3).
+            AssistantBlock::ServerToolCall { .. } => return Err(EncodeError::ServerToolCallInChat),
         }
     }
     Ok(pending.into_message())

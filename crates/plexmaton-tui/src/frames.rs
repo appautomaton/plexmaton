@@ -98,6 +98,13 @@ mod tests {
         ("tool-open-narrow", 60, 40),
     ];
 
+    /// Stage 33's provider-run calls beside a local tool, at the three product widths.
+    const SERVER_TOOL_FRAMES: [(&str, u16, u16); 3] = [
+        ("server-tool-wide", 120, 40),
+        ("server-tool-medium", 95, 40),
+        ("server-tool-narrow", 60, 40),
+    ];
+
     /// Slice 6's remaining transcript roles and a disclosed canonical patch.
     const GRAMMAR_FRAMES: [(&str, u16, u16); 3] = [
         ("transcript-grammar-wide", 120, 40),
@@ -513,6 +520,212 @@ mod tests {
                 item_revision: 2,
             },
         );
+    }
+
+    /// ui-ux §transcript grammar: a provider-run call reads in the tool row's grammar, in its own
+    /// colour when it ended well and in failure's when it did not; the row says what the route
+    /// reported and nothing further, and the title counts it among the tools.
+    #[test]
+    fn the_server_tool_frames_match_their_fixtures() {
+        let state = server_tool_state();
+        for (name, width, height) in SERVER_TOOL_FRAMES {
+            let drawn = draw(&state, width, height);
+            for row in [
+                "[+] read_file · succeeded",
+                "[+] web_search · latest stable Rust release",
+                "[+] web_search · Rust 1.98.1 release date, Rust 1.98.1 point release",
+                "[+] web_search · opened blog.rust-lang.org/releases/",
+                "[!] web_search · Rust nightly changelog · failed",
+                "[~] web_search · running",
+            ] {
+                let fits = row.len() <= usize::from(width) - 2;
+                assert!(
+                    drawn.contains(row) || !fits,
+                    "{name}: the row is absent or truncated where it fits: {row:?}"
+                );
+            }
+            assert!(
+                drawn
+                    .lines()
+                    .any(|line| line.trim_end().ends_with("│[+] web_search")
+                        || line.contains("│[+] web_search                ")),
+                "{name}: a search the route reported without a query is the name alone"
+            );
+            assert!(
+                drawn.contains(" 8 "),
+                "{name}: every call counts among the tools"
+            );
+            crate::test_support::assert_frame(name, &drawn);
+        }
+        // The disclosed row, at the width a reviewer reads first.
+        let mut state = server_tool_state();
+        let agent = state
+            .primary_agent()
+            .map(|agent| agent.id.clone())
+            .unwrap_or_else(|| panic!("the frame has a primary agent"));
+        let item = TranscriptItemId::new("server-tool-find")
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        let index = state
+            .primary_agent()
+            .and_then(|agent| agent.entries().position(|entry| entry.id() == &item))
+            .unwrap_or_else(|| panic!("the find is in the transcript"));
+        let (surfaces, _) = draw_frame(&state, &Palette::pastel(), 120, 40);
+        state.toggle_entry(
+            &surfaces,
+            &TranscriptMetrics::default(),
+            EntryTarget {
+                surface: SurfaceId::Transcript,
+                agent,
+                item,
+                index,
+            },
+        );
+        let drawn = draw(&state, 120, 40);
+        assert!(drawn.contains("  │ pattern: 1.98.1"), "{drawn}");
+        crate::test_support::assert_frame("server-tool-open-wide", &drawn);
+    }
+
+    fn server_tool_state() -> ViewState {
+        use plexmaton_core::{
+            ServerTool, ServerToolAction, ServerToolCall, ServerToolStatus, TranscriptRole,
+        };
+
+        let agent =
+            AgentId::new("agent-primary").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let mut state = ViewState::default();
+        let mut sequence = 0_u64;
+        apply_frame_event(
+            &mut state,
+            &mut sequence,
+            ConversationEvent::AgentCreated {
+                agent_id: agent.clone(),
+                label: "Plexmaton".to_owned(),
+                status: AgentStatus::Idle,
+            },
+        );
+        append_frame_text(
+            &mut state,
+            &mut sequence,
+            &agent,
+            "user-turn",
+            TranscriptRole::User,
+            "What is the latest stable Rust release, and when did it ship?",
+        );
+        append_frame_text(
+            &mut state,
+            &mut sequence,
+            &agent,
+            "visible-reasoning",
+            TranscriptRole::Reasoning,
+            "A version number is a current fact, so I will search rather than answer from memory, then confirm the date on the release post.",
+        );
+        let item =
+            TranscriptItemId::new("local-read").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let call = ToolCallId::new("local-read").unwrap_or_else(|error| panic!("fixture: {error}"));
+        for (revision, status) in [
+            (0, ToolCallStatus::Queued),
+            (1, ToolCallStatus::Running),
+            (2, ToolCallStatus::Succeeded),
+        ] {
+            apply_frame_event(
+                &mut state,
+                &mut sequence,
+                ConversationEvent::ToolCallChanged {
+                    agent_id: agent.clone(),
+                    item_id: item.clone(),
+                    item_revision: revision,
+                    call_id: call.clone(),
+                    label: "read_file".to_owned(),
+                    status,
+                    presentation: ToolPresentation {
+                        invocation: (revision > 0).then(|| ToolDetail::Text {
+                            source: "path: Cargo.toml".to_owned(),
+                            omitted_bytes: 0,
+                        }),
+                        outcome: None,
+                    },
+                },
+            );
+        }
+        let search = |queries: &[&str]| ServerToolAction::Search {
+            queries: queries.iter().map(|query| (*query).to_owned()).collect(),
+        };
+        // The shapes one live route produced, in its order: a query, two at once, a search it
+        // reported without one, an opened page, a pattern sought in a page, and a call it gave up.
+        for (name, action, status) in [
+            (
+                "server-tool-search",
+                search(&["latest stable Rust release"]),
+                ServerToolStatus::Completed,
+            ),
+            (
+                "server-tool-search-two",
+                search(&["Rust 1.98.1 release date", "Rust 1.98.1 point release"]),
+                ServerToolStatus::Completed,
+            ),
+            (
+                "server-tool-search-bare",
+                search(&[]),
+                ServerToolStatus::Completed,
+            ),
+            (
+                "server-tool-open",
+                ServerToolAction::OpenPage {
+                    url: "blog.rust-lang.org/releases/".to_owned(),
+                },
+                ServerToolStatus::Completed,
+            ),
+            (
+                "server-tool-find",
+                ServerToolAction::FindInPage {
+                    url: "releases.rs/docs/1.98.1".to_owned(),
+                    pattern: "1.98.1".to_owned(),
+                },
+                ServerToolStatus::Completed,
+            ),
+            (
+                "server-tool-failed",
+                search(&["Rust nightly changelog"]),
+                ServerToolStatus::Failed,
+            ),
+        ] {
+            apply_frame_event(
+                &mut state,
+                &mut sequence,
+                ConversationEvent::ServerToolCalled {
+                    agent_id: agent.clone(),
+                    item_id: TranscriptItemId::new(name)
+                        .unwrap_or_else(|error| panic!("fixture: {error}")),
+                    item_revision: 0,
+                    call: ServerToolCall {
+                        tool: ServerTool::WebSearch,
+                        action,
+                        status,
+                    },
+                },
+            );
+        }
+        // One the provider has begun and not yet reported.
+        apply_frame_event(
+            &mut state,
+            &mut sequence,
+            ConversationEvent::ServerToolStarted {
+                agent_id: agent.clone(),
+                item_id: TranscriptItemId::new("server-tool-running")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                tool: ServerTool::WebSearch,
+            },
+        );
+        append_frame_text(
+            &mut state,
+            &mut sequence,
+            &agent,
+            "assistant-turn",
+            TranscriptRole::Assistant,
+            "Rust 1.98.1 is the latest stable release. It is a point release over 1.98.0, and the release post on the Rust blog lists what it fixes.",
+        );
+        state.set_working_directory("~/plexmaton".to_owned());
+        state
     }
 
     fn transcript_grammar_state(width: u16, height: u16) -> ViewState {
