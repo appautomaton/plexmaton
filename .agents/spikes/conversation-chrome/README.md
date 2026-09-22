@@ -33,6 +33,7 @@ A block of cells is square only for one cell shape, so the width must come from 
 | --- | --- | --- |
 | Sarasa Term SC Nerd, plus kitty's `modify_font cell_height 3px` at 12 pt | 0.50 em × 1.25 em, about 8 × 23 px | 9×3, 15×5 |
 | JetBrains Mono, from the fontsource CDN file | 0.60 em × 1.32 em | 11×5 exactly, 7×3 and 15×7 within 6 % |
+| Maple Mono NF CN Medium, the user's kitty font since 2026-09-22 | 0.60 em × 1.32 em; CJK 1.20 em, two cells | 11×5 exactly, 7×3 and 15×7 within 6 %; every glyph below present |
 
 kitty answers `CSI 16 t` with the cell in pixels; `cellsize.py` shows the reply and the sizes.
 

@@ -202,21 +202,6 @@ pub const fn inner_width(width: u16) -> u16 {
 }
 
 impl ViewState {
-    /// Names the resolved model, so the composer's rule can say how hard it will think.
-    pub fn set_model(&mut self, summary: ConfigurationSummary) {
-        if self.model.as_ref() == Some(&summary) {
-            return;
-        }
-        self.model = Some(summary);
-        self.touch();
-    }
-
-    /// The reasoning effort of the resolved model, once the composition root has named it.
-    #[must_use]
-    pub(crate) fn reasoning_effort(&self) -> Option<plexmaton_core::ReasoningEffort> {
-        self.model.as_ref().map(|summary| summary.reasoning_effort)
-    }
-
     /// The Drawer while it is open.
     #[must_use]
     pub const fn drawer(&self) -> Option<&Drawer> {

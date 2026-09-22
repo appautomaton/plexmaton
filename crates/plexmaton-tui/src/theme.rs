@@ -2,7 +2,7 @@
 //!
 //! A [`Slots`] is twelve colours named for where each sits — a ground ramp and eight hues around
 //! the wheel — and is the only thing a theme supplies. A [`Role`] is what a colour *means* here,
-//! and [`Palette::from_slots`] is the one place the seventeen roles are spent on those twelve slots.
+//! and [`Palette::from_slots`] is the one place the eighteen roles are spent on those twelve slots.
 //! Widgets name a role and never a colour, so a theme changes how the product looks and never what
 //! it says. [`Palette::pastel`] is the shipped assignment, not a closed set.
 
@@ -142,11 +142,14 @@ pub enum Role {
     /// The row the next `Enter` acts on: a bar, weight and a hue together, so it is found at a
     /// glance, read first, and tied to the action colour.
     Chosen,
+    /// The ground a user's message sits on: this palette's ground lifted toward its line, so the
+    /// turn is told by its surface rather than by a hue. Background only; the text keeps `Body`.
+    UserMessage,
 }
 
 impl Role {
     /// Every role, used by tests and by palette completeness checks.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::Body,
         Self::Muted,
         Self::Border,
@@ -164,6 +167,7 @@ impl Role {
         Self::ServerTool,
         Self::Selection,
         Self::Chosen,
+        Self::UserMessage,
     ];
 
     /// The attention hierarchy, which must stay mutually distinguishable in every palette.
@@ -209,12 +213,6 @@ pub const fn agent_role(status: AgentStatus) -> Role {
 /// colour, so a selection reads as a selection on top of whatever role painted the run.
 const SELECTION: Style = Style::new().add_modifier(Modifier::REVERSED);
 
-/// One hue at rest: the same colour carried most of the way to *this palette's* ground.
-///
-/// Blending toward the ground rather than toward grey keeps the hue legible at low intensity, so an
-/// unfocused surface still says whose it is. The ground has to come from the palette: a hard-coded
-/// dark one quiets a hue only while the theme is dark, and on a light ground the same arithmetic
-/// brightens the resting border past the focused one — the signal inverts instead of fading.
 /// One slot's opposite. A harness swapping every slot for this proves a repaint costs styling and
 /// nothing else, without an API that could have changed a role's meaning instead.
 #[must_use]
@@ -225,6 +223,12 @@ pub fn invert(colour: Color) -> Color {
     }
 }
 
+/// One hue at rest: the same colour carried most of the way to *this palette's* ground.
+///
+/// Blending toward the ground rather than toward grey keeps the hue legible at low intensity, so an
+/// unfocused surface still says whose it is. The ground has to come from the palette: a hard-coded
+/// dark one quiets a hue only while the theme is dark, and on a light ground the same arithmetic
+/// brightens the resting border past the focused one — the signal inverts instead of fading.
 fn quieted(hue: Color, ground: Color) -> Color {
     let (Color::Rgb(red, green, blue), Color::Rgb(gr, gg, gb)) = (hue, ground) else {
         return hue;
@@ -233,6 +237,23 @@ fn quieted(hue: Color, ground: Color) -> Color {
         u8::try_from((u16::from(value) * 45 + u16::from(ground) * 55) / 100).unwrap_or(value)
     };
     Color::Rgb(mix(red, gr), mix(green, gg), mix(blue, gb))
+}
+
+/// The user's band: this palette's ground carried a third of the way toward its line.
+///
+/// Toward the line rather than toward white for the reason [`quieted`] blends toward the ground: on
+/// a dark theme the band lifts, on a light one it sinks, and either way it stays a surface beneath
+/// the text rather than a colour competing with it.
+fn lifted(ground: Color, line: Color) -> Color {
+    let (Color::Rgb(red, green, blue), Color::Rgb(lr, lg, lb)) = (ground, line) else {
+        return ground;
+    };
+    // Thirds, rounded to nearest: a third never lands on a half, so inverting both slots inverts
+    // the band exactly and a theme still reaches every colour a role paints with.
+    let mix = |value: u8, line: u8| {
+        u8::try_from((u16::from(value) * 2 + u16::from(line) + 1) / 3).unwrap_or(value)
+    };
+    Color::Rgb(mix(red, lr), mix(green, lg), mix(blue, lb))
 }
 
 /// Resolved styles for every [`Role`].
@@ -262,10 +283,11 @@ pub struct Palette {
     server_tool: Style,
     selection: Style,
     chosen: Style,
+    user_message: Style,
 }
 
 impl Palette {
-    /// Spends the seventeen roles on a theme's twelve slots.
+    /// Spends the eighteen roles on a theme's twelve slots.
     ///
     /// This mapping is the product's half of the palette and lives in exactly one place. A theme
     /// supplies colours and reaches no further, so no colourway can make a failure read as a
@@ -307,6 +329,7 @@ impl Palette {
                 .fg(slots.yellow)
                 .bg(slots.ground)
                 .add_modifier(Modifier::BOLD),
+            user_message: Style::new().bg(lifted(slots.ground, slots.line)),
         }
     }
 
@@ -338,10 +361,11 @@ impl Palette {
             server_tool: style(Role::ServerTool),
             selection: style(Role::Selection),
             chosen: style(Role::Chosen),
+            user_message: style(Role::UserMessage),
         }
     }
 
-    /// The shipped palette: [`Slots::designed`] spent on the seventeen roles.
+    /// The shipped palette: [`Slots::designed`] spent on the eighteen roles.
     ///
     /// A role says what a thing is — blue for where you are, cyan for work in progress, green for
     /// what finished, orange for what needs you, red for what failed, yellow for what `Enter` acts
@@ -423,6 +447,7 @@ impl Palette {
             Role::ServerTool => self.server_tool,
             Role::Selection => self.selection,
             Role::Chosen => self.chosen,
+            Role::UserMessage => self.user_message,
         }
     }
 }

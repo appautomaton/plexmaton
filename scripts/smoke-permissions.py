@@ -10,14 +10,16 @@ import subprocess
 import tempfile
 
 from provider_fixture import ScriptedProvider, command_turn
-from smoke_support import ENTER, ESC, ROOT, UP, Terminal, fixture_environment, read_until
+from smoke_support import ENTER, ESC, ROOT, UP, Terminal, composer_title, fixture_environment, read_until
+
+COMPOSER = composer_title("PermissionFixture")
 
 
 class PermissionTerminal(Terminal):
     """The Drawer route this journey walks repeatedly; no other journey opens Permissions."""
 
     def __init__(self, project, environment, name, arguments=()):
-        super().__init__(project, environment, "permissions", name, arguments)
+        super().__init__(project, environment, "permissions", name, arguments, composer=COMPOSER)
 
     def permissions(self):
         self.send(b"\x10perm", "Workspace", "> Permissions", "Esc close")
@@ -26,7 +28,7 @@ class PermissionTerminal(Terminal):
     def close_permissions(self):
         # One layer per Escape (DRW-3): the page returns to the list, the list to the origin.
         self.send(ESC, "> Permissions", "Esc close")
-        self.send(ESC, "Message Plexmaton", absent=("Type to filter",))
+        self.send(ESC, COMPOSER, absent=("Type to filter",))
 
 
 def changes(home):
@@ -65,7 +67,7 @@ output_reserve_tokens = 4096
         environment = dict(fixture_environment(), PLEXMATON_HOME=str(home),
                            PLEXMATON_PERMISSION_FIXTURE_KEY="fixture-only")
         with PermissionTerminal(project, environment, "first") as terminal:
-            terminal.wait("Message Plexmaton")
+            terminal.wait(COMPOSER)
             terminal.permissions()
             terminal.wait("> Review project configuration rules")
             terminal.send(ENTER, "Project configuration rules", "Continue to activation")
@@ -102,7 +104,7 @@ output_reserve_tokens = 4096
             terminal.quit()
 
         with PermissionTerminal(project, environment, "restart") as terminal:
-            terminal.wait("Message Plexmaton")
+            terminal.wait(COMPOSER)
             # A fresh process seeds again (PER-1), so the restart takes it back too: what survives
             # here must be the Project prefix grant, not a grant this Session just created.
             terminal.restore_command_approvals()

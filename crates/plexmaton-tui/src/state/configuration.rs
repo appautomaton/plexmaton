@@ -7,6 +7,8 @@ use super::{ViewState, drawer::Shown};
 pub struct ConfigurationSummary {
     pub provider: String,
     pub model: String,
+    /// What the owner calls the model; the composer's rule names the next message's model by it.
+    pub display_name: String,
     pub configured_name: String,
     pub reasoning_effort: plexmaton_core::ReasoningEffort,
 }
@@ -29,6 +31,29 @@ impl ConfigurationSummary {
 }
 
 impl ViewState {
+    /// Names the resolved model, so the composer's rule can say how hard it will think.
+    pub fn set_model(&mut self, summary: ConfigurationSummary) {
+        if self.model.as_ref() == Some(&summary) {
+            return;
+        }
+        self.model = Some(summary);
+        self.touch();
+    }
+
+    /// What the owner calls the resolved model, once the composition root has named it.
+    #[must_use]
+    pub(crate) fn model_name(&self) -> Option<&str> {
+        self.model
+            .as_ref()
+            .map(|summary| summary.display_name.as_str())
+    }
+
+    /// The reasoning effort of the resolved model, once the composition root has named it.
+    #[must_use]
+    pub(crate) fn reasoning_effort(&self) -> Option<plexmaton_core::ReasoningEffort> {
+        self.model.as_ref().map(|summary| summary.reasoning_effort)
+    }
+
     /// The resolved settings while the Configuration page is open.
     #[must_use]
     pub fn configuration(&self) -> Option<&ConfigurationSummary> {

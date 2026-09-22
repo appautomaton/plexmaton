@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15, 17–27, 29 and 31–33 complete; stages 16 and 28 await the user's terminal test; stage 30 automatic-compaction visibility unstarted; stage 10 branding and stage 34 conversation chrome planned and unstarted |
+| Status | Active; stages 1–9, 11–15, 17–27, 29 and 31–33 complete; stages 16 and 28 await the user's terminal test; stage 30 automatic-compaction visibility unstarted; stage 34 conversation chrome in progress; stage 10 branding planned and unstarted |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership; Phase 02 journal/accounting/budget projections; Phase 03 durable collaboration, owned child scheduling, Handoff/Stop, passive recovery and canonical Attention |
@@ -391,8 +391,9 @@ Rejected: treating JSONL round trips as independent export/import acceptance.
     whole turn at once. Where hosted-tool spend belongs in the cost surface stays open in
     [ui-ux](../ui-ux.md) §open questions.
 
-34. **Conversation chrome — unstarted.** The user's turn sits on a band of lifted ground behind a
-    blue `›` instead of an accent-coloured bar, and the activity line moves while the agent works:
+34. **Conversation chrome — in progress.** The user's turn sits on a band of lifted ground behind a
+    blue `›` instead of an accent-coloured bar, the composer's rule names the model rather than
+    repeating the agent, and the activity line moves while the agent works:
     the mark's core, the label, elapsed time, effort, and how long the route has been quiet. Both
     were chosen from rendered candidates beside Claude Code, Codex and Grok, and both change
     presentation only; motion shares EFF-4's clock rather than owning one. The

@@ -461,8 +461,8 @@ mod tests {
             );
             assert_eq!(
                 composer_title(state, &palette).to_string(),
-                " Message Agent A · primary ",
-                "the rule names the addressee and nothing the agent is doing"
+                " Message ",
+                "with no model named yet, the rule says only that it takes a message"
             );
         };
 
@@ -516,7 +516,7 @@ mod tests {
         assert_eq!(
             title.to_string(),
             format!(
-                " Message Agent A · primary · {} ",
+                " Sol Preview · {} ",
                 crate::test_support::configuration_summary().reasoning_effort
             )
         );
@@ -974,10 +974,12 @@ mod tests {
         );
     }
 
-    /// COM-4: the composer's target is on screen and does not follow the selection.
+    /// COM-4: the composer's rule names the model the next message goes to, by the name its owner
+    /// gave it, and does not follow the selection to another agent.
     #[test]
-    fn the_composer_names_its_target_while_another_agent_is_selected() {
+    fn the_composer_names_the_model_while_another_agent_is_selected() {
         let mut state = canonical_state();
+        state.set_model(crate::test_support::configuration_summary());
         let agent_b =
             AgentId::new("agent-b").unwrap_or_else(|error| panic!("invalid fixture: {error}"));
         state
@@ -999,9 +1001,14 @@ mod tests {
             region(SurfaceId::Inspector).contains("Agent B"),
             "the selection really did move, so this is not a test of nothing changing"
         );
+        let composer = region(SurfaceId::Composer);
         assert!(
-            region(SurfaceId::Composer).contains("Message Agent A"),
-            "typing still goes to the primary agent, and the title has to say so"
+            composer.contains("Sol Preview"),
+            "the rule names the model by its display name, not its wire id: {composer}"
+        );
+        assert!(
+            !composer.contains("Agent B") && !composer.contains("gpt-5.6-sol"),
+            "neither the selected agent nor the wire id reaches the rule: {composer}"
         );
     }
 
@@ -1091,7 +1098,7 @@ mod tests {
                 SurfaceId::Agents => "Agents",
                 // The conversation has no title; its activity line is what it always paints.
                 SurfaceId::Transcript => "Thinking…",
-                SurfaceId::Composer => "Message Agent A",
+                SurfaceId::Composer => "Message",
                 SurfaceId::Notices => "[drop]",
                 SurfaceId::Approval => "Approval required",
                 SurfaceId::CommandInspection => "Command",
@@ -1305,7 +1312,7 @@ mod tests {
             !rendered.contains("overlap study"),
             "the collapsed navigator must not cover the conversation"
         );
-        assert!(rendered.contains("Message Agent A"));
+        assert!(rendered.contains(" Message "));
         assert!(
             rendered.contains("~/plexmaton"),
             "the status line is the last row"

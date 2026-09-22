@@ -109,6 +109,7 @@ fn render(palette: Palette, frame: &str) -> Result<Buffer> {
         configured_name: "fixture".into(),
         provider: "local".into(),
         model: "plexmaton-dev".into(),
+        display_name: "plexmaton-dev".into(),
         reasoning_effort: plexmaton_core::ReasoningEffort::High,
     });
     let mut events = ScriptedRuntime::new(Scenario::canonical()?).ready(u64::MAX);

@@ -14,7 +14,7 @@
 │                                                                                             │
 │received from Agent B · UI study · Routing stays centralized and z-ordered.                  │
 │· Thinking…                                                                                  │
-── Message Agent A · primary ──────────────────────────────────────────────────────────────────
+── Message ────────────────────────────────────────────────────────────────────────────────────
  Type a message · ⇥ to focus                                                                   
 ───────────────────────────────────────────────────────────────────────────────────────────────
  ~/plexmaton                                                                                   

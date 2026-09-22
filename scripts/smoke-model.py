@@ -6,7 +6,9 @@ import subprocess
 import tempfile
 
 from provider_fixture import ScriptedProvider, command_turn, response
-from smoke_support import ENTER, ESC, ROOT, Terminal, fixture_environment
+from smoke_support import ENTER, ESC, ROOT, Terminal, composer_title, fixture_environment
+
+COMPOSER = composer_title("First Model")
 
 
 def run_smoke(first, second):
@@ -38,15 +40,15 @@ output_reserve_tokens = 4096
 '''
         (home / "config.toml").write_text(config)
         environment = dict(fixture_environment(), PLEXMATON_HOME=str(home), FIRST_LOGIN="fixture-only", OTHER_LOGIN="fixture-only")
-        with Terminal(project, environment, "model", "menu") as terminal:
-            terminal.wait("Message Plexmaton", "STATUS_CLEAN")
+        with Terminal(project, environment, "model", "menu", composer=COMPOSER) as terminal:
+            terminal.wait(COMPOSER, "STATUS_CLEAN")
             terminal.prompt("/model", "Models", "first/same", "second/same")
             terminal.send(ESC, "/model", absent=("Enter confirm",))
-            terminal.send(b"\x15", "Message Plexmaton", absent=("/model",))
+            terminal.send(b"\x15", COMPOSER, absent=("/model",))
             terminal.send(b"/model missing", "Models", "missing/same")
             terminal.send(ENTER, "credential is missing or invalid", "/model missing", "first-wire", "low")
             terminal.send(ESC, "/model missing", absent=("Enter confirm",))
-            terminal.send(b"\x15", "Message Plexmaton", absent=("/model",))
+            terminal.send(b"\x15", COMPOSER, absent=("/model",))
             assert first.snapshot() == ([], []) and second.snapshot() == ([], [])
             assert not list((home / "sessions").glob("*.jsonl"))
             terminal.prompt("Remember this first message", "FIRST_DONE")
@@ -55,7 +57,9 @@ output_reserve_tokens = 4096
                 terminal.resize(width + 1, "Models")
                 terminal.resize(width, "Models", "second/same")
             terminal.send(ENTER, "second-wire", "high", absent=("Enter confirm",))
-            terminal.wait("STATUS_CLEAN")
+            # The composer's rule now names the model the switch chose.
+            terminal.composer = composer_title("Second Model")
+            terminal.wait("STATUS_CLEAN", terminal.composer)
             # MDL-3 is read off an admitted command, so this journey needs the admission itself.
             terminal.restore_command_approvals()
             terminal.prompt("Check the command environment", "Approval required", "Allow once")

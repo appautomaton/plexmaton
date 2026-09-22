@@ -38,8 +38,8 @@ process and cost the user every row of history to report one sentence. Rejected:
 terminal events when only the router may (INV-1); and the projection appending its own transcript,
 which puts two writers on one numbered stream.
 
-**COM-4 — The route is on screen.** The primary composer names its agent and submits a message for
-the next turn. A Main-controlled worker window has no input route. After acknowledged Handoff, an
+**COM-4 — The route is on screen.** The primary composer's rule names the model that answers the
+next message, and the composer submits it for the next turn. A Main-controlled worker window has no input route. After acknowledged Handoff, an
 entered worker window names that worker and submits ordinary user input at the boundary its
 lifecycle accepts. Selection alone changes neither route (ui-ux §input).
 [CCV-1–CCV-4](./child-control-view.md) own controller-aware rendering and routing; authenticated

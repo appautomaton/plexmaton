@@ -338,12 +338,7 @@ mod tests {
         for (name, width, height) in FRAMES {
             let drawn = draw(&canonical_state(), width, height);
             // Structural first, so an empty or truncated fixture cannot pass by matching nothing.
-            for signature in [
-                "Agents",
-                "Agent A · primary",
-                "Message Agent A",
-                "~/plexmaton",
-            ] {
+            for signature in ["Agents", "Agent A · primary", " Message ", "~/plexmaton"] {
                 assert!(
                     drawn.contains(signature),
                     "{name}: {signature:?} is not on screen"
@@ -1130,7 +1125,7 @@ mod tests {
             let state = tool_state(status);
             for (width_name, width, height) in PRODUCT_WIDTHS {
                 let drawn = draw(&state, width, height);
-                for signature in ["read_file", status_text, "Message Plexmaton", "~/plexmaton"] {
+                for signature in ["read_file", status_text, " Message ", "~/plexmaton"] {
                     assert!(
                         drawn.contains(signature),
                         "{status:?} at {width_name}: {signature:?} is not on screen"
@@ -1172,10 +1167,10 @@ mod tests {
         for (name, width, height) in GRAMMAR_FRAMES {
             let drawn = draw(&transcript_grammar_state(width, height), width, height);
             for signature in [
-                // The user's turn wears a bar down its whole height and the agent's wears
-                // nothing; neither wears a word. `you` and `assistant` above every message
-                // labelled what the shape of the screen already said (ui-ux §transcript grammar).
-                "▌Change the colour constant",
+                // The user's turn opens with a chevron on its band and the agent's wears nothing;
+                // neither wears a word. `you` and `assistant` above every message labelled what
+                // the shape of the screen already said (ui-ux §transcript grammar).
+                " › Change the colour constant",
                 "Done. The retained patch",
                 "reasoning",
                 "system",

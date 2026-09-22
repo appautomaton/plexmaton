@@ -15,7 +15,7 @@
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
-│▌What is the latest stable Rust release, and when did it ship?                                                        │
+│ › What is the latest stable Rust release, and when did it ship?                                                      │
 │                                                                                                                      │
 │reasoning                                                                                                             │
 │A version number is a current fact, so I will search rather than answer from memory, then confirm the date on the     │
@@ -34,7 +34,7 @@
 │blog lists what it fixes.                                                                                             │
 │                                                                                                                      │
 │· Running web_search…                                                                                                 │
-── Message Plexmaton ───────────────────────────────────────────────────────────────────────────────────────────────────
+── Message ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
  Type a message · ⇥ to focus                                                                                            
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  ~/plexmaton                                                                                                            

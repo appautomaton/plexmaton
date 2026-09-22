@@ -7,7 +7,9 @@ import subprocess
 import tempfile
 
 from provider_fixture import PausedResponse, ScriptedProvider, response
-from smoke_support import ENTER, ROOT, Terminal, fixture_environment, set_size
+from smoke_support import ENTER, ROOT, Terminal, composer_title, fixture_environment, set_size
+
+COMPOSER = composer_title("QueueFixture")
 
 FIRST = "Inspect the queue fixture"
 OLDER = "Keep this earlier message"
@@ -36,7 +38,7 @@ def capture_widths(terminal):
     terminal.frame_start = len(terminal.capture)
     terminal.size = (12, 60)
     set_size(terminal.master, terminal.size)
-    short = terminal.wait("Message Plexmaton", "Responding", absent=("Waiting to send",))
+    short = terminal.wait(COMPOSER, "Responding", absent=("Waiting to send",))
     (output / "input-queue-short.txt").write_text(short)
     terminal.resize(120, "Waiting to send · 2", "Alt-↑")
 
@@ -64,7 +66,7 @@ output_reserve_tokens = 4096
         environment = dict(fixture_environment(), PLEXMATON_HOME=str(home),
                            PLEXMATON_QUEUE_FIXTURE_KEY="fixture-only")
         with Terminal(project, environment, "input-queue", "queue") as terminal:
-            terminal.wait("Message Plexmaton")
+            terminal.wait(COMPOSER)
             terminal.prompt(FIRST, "FIRST_STREAM", "Responding")
             terminal.prompt(OLDER, "Waiting to send · 1", OLDER)
             # A numeric skill needs its explicit picker binding; literal currency does not
@@ -83,7 +85,7 @@ output_reserve_tokens = 4096
             terminal.send(b"\x03", "Waiting to send · 2", "takes back the last one", absent=("DRAFT_KEEP",))
             screen = terminal.send(ALT_UP, "Waiting to send · 1", "Responding",
                                    "Return this exact message", "Keep 中文 and spacing intact")
-            composer = screen[screen.index("Message Plexmaton"):]
+            composer = screen[screen.index(COMPOSER):]
             # The terminal decoder retains a filler cell after wide glyphs; the request below
             # proves exact source bytes independently of their display-cell representation.
             assert all(line.replace(" ", "") in composer.replace(" ", "")

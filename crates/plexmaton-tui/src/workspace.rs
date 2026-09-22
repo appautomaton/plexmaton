@@ -2078,8 +2078,8 @@ mod tests {
         );
         assert!(painted(&terminal, &workspace, SurfaceId::Inspector).contains("Agent B"));
         assert!(
-            painted(&terminal, &workspace, SurfaceId::Composer).contains("Message Agent A"),
-            "the conversation's title stays readable above the window"
+            painted(&terminal, &workspace, SurfaceId::Composer).contains("Message"),
+            "the composer's title stays readable beneath the window"
         );
         assert!(
             painted_beneath(&terminal, &workspace).contains("remains interactive"),

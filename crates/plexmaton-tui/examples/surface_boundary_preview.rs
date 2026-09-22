@@ -52,6 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             provider: "local".into(),
             configured_name: "luna".into(),
             model: "gpt-5.6-luna".into(),
+            display_name: "gpt-5.6-luna".into(),
             reasoning_effort: ReasoningEffort::Max,
         });
         workspace.set_working_directory("~/dev/plexmaton · main".into());

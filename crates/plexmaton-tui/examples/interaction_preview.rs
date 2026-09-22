@@ -51,6 +51,7 @@ fn main() -> Result<()> {
             configured_name: "fixture".into(),
             provider: "Local development".into(),
             model: "example-model".into(),
+            display_name: "example-model".into(),
             reasoning_effort: ReasoningEffort::High,
         });
         workspace.draw(&mut terminal)?;

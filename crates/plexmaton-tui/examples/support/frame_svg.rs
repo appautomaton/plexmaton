@@ -43,7 +43,7 @@ pub fn svg(buffer: &Buffer) -> String {
     let width = buffer.area.width * 9;
     let height = buffer.area.height * 20;
     let mut out = format!(
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 {width} {height}" preserveAspectRatio="xMinYMin meet"><rect width="100%" height="100%" fill="{BACKGROUND}"/><g font-family="Menlo,'Agave Nerd Font Mono',monospace" font-size="14">"##
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 {width} {height}" preserveAspectRatio="xMinYMin meet"><rect width="100%" height="100%" fill="{BACKGROUND}"/><g font-family="'Maple Mono NF CN','Agave Nerd Font Mono',Menlo,monospace" font-size="14">"##
     );
     for y in 0..buffer.area.height {
         let mut x = 0;

@@ -16,6 +16,13 @@ reviewed the real frames at [120](../../crates/plexmaton-tui/frames/server-tool-
 [88](../../crates/plexmaton-tui/frames/server-tool-88.svg) and
 [60](../../crates/plexmaton-tui/frames/server-tool-60.svg).
 
+The user chose the band for their own turn on 2026-09-21 from rendered candidates beside Claude
+Code, Codex and Grok, and reviewed the real frames on 2026-09-22;
+`the_users_turn_sits_on_a_band_across_the_full_width` pins it. The frames are at [120](../../crates/plexmaton-tui/frames/user-message-120.svg),
+[88](../../crates/plexmaton-tui/frames/user-message-88.svg),
+[60](../../crates/plexmaton-tui/frames/user-message-60.svg) and
+[120 while hovered](../../crates/plexmaton-tui/frames/user-message-120-hover.svg).
+
 The user approved disclosure-only tool clicks on 2026-09-06. Reviewed real frames at
 [120](../../crates/plexmaton-tui/frames/tool-disclosure-120.svg),
 [88](../../crates/plexmaton-tui/frames/tool-disclosure-88.svg) and

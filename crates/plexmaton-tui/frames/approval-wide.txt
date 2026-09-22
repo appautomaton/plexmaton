@@ -34,7 +34,7 @@
    1–2 decide · ↑↓ Enter · Ctrl-O details                   │[+] inspect interaction fixtures · succeeded              │
    Esc returns to the conversation                          │@ interaction findings ·                                  │
                                                             │artifact://agent-b/interaction-findings                   │
-── Message Agent A · primary ───────────────────────────────│sent to Agent A · primary · Routing stays centralized and…│
+── Message ─────────────────────────────────────────────────│sent to Agent A · primary · Routing stays centralized and…│
  Type a message · ⇥ to focus                                │Controller unavailable · input locked                     │
 ────────────────────────────────────────────────────────────└──────────────────────────────────────────────────────────┘
  ~/plexmaton                                                                                                            

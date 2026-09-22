@@ -32,6 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             provider: "work".into(),
             configured_name: "balanced".into(),
             model: "balanced-v1".into(),
+            display_name: "balanced-v1".into(),
             reasoning_effort: ReasoningEffort::High,
         });
         workspace.set_working_directory("~/dev/plexmaton · main".into());
