@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15, 17–27, 29 and 31–33 complete; stages 16 and 28 await the user's terminal test; stage 30 automatic-compaction visibility unstarted; stage 10 branding remains |
+| Status | Active; stages 1–9, 11–15, 17–27, 29 and 31–33 complete; stages 16 and 28 await the user's terminal test; stage 30 automatic-compaction visibility unstarted; stage 10 branding and stage 34 conversation chrome planned and unstarted |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership; Phase 02 journal/accounting/budget projections; Phase 03 durable collaboration, owned child scheduling, Handoff/Stop, passive recovery and canonical Attention |
@@ -105,9 +105,16 @@ Visual changes are reviewed against real frames before the contract adopts them.
    [narrow](../spikes/agent-skills/frames/skill-picker-narrow.svg) widths. No dependency or journal
    schema change was needed for the picker; live model behavior remains unverified.
 
-10. **Branding.** A rounded-square frame and circular gradient center form the user's visual
-    reference. Palette, pure Ratatui drawing and a visible-only animation clock are separate
-    responsibilities. Static geometry/color previews precede motion; no script reruns per logo frame.
+10. **Branding — unstarted.** The mark is a rounded-square frame with a circular centre. In cells
+    the frame is box drawing at three weights and the centre is one glyph from the Material Design
+    set the Nerd Font already supplies; the block is odd on both axes and its width is chosen from
+    the terminal's measured cell so it comes out square, because no fixed size is square in two
+    fonts. It first appears centred in an empty conversation and leaves with the first message. In
+    motion the frame breathes between weights and drifts between palette slots, and the centre morphs
+    through circle, ring, rounded square and square, on the visible-only clock EFF-4 owns. Palette,
+    pure Ratatui drawing and the clock stay separate responsibilities; static previews at three
+    widths precede motion; no script reruns per frame. The
+    [stage plan](../plans/phase-04-stage-10-branding.md) owns the order.
 11. **Composer menu and Drawer — complete.** A Command is a slash command only, typed into the
     conversation it addresses and run from there with a captured target: `/new`, `/resume` over
     saved conversations, `/compact` and `/permissions` for the Session, under
@@ -383,6 +390,13 @@ Rejected: treating JSONL round trips as independent export/import acceptance.
     live measurements of the one route this was proven on, including that the route delivers a
     whole turn at once. Where hosted-tool spend belongs in the cost surface stays open in
     [ui-ux](../ui-ux.md) §open questions.
+
+34. **Conversation chrome — unstarted.** The user's turn sits on a band of lifted ground behind a
+    blue `›` instead of an accent-coloured bar, and the activity line moves while the agent works:
+    the mark's core, the label, elapsed time, effort, and how long the route has been quiet. Both
+    were chosen from rendered candidates beside Claude Code, Codex and Grok, and both change
+    presentation only; motion shares EFF-4's clock rather than owning one. The
+    [stage plan](../plans/phase-04-stage-34-conversation-chrome.md) owns the order.
 
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is
 ready; this phase opening does not claim those capabilities have started.

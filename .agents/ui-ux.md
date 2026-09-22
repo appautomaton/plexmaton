@@ -154,8 +154,20 @@ other rule about input follows from this one.
   acceptable and zero costs too much screen on a small terminal.
 - **The conversation's last row is its activity line**, above the composer: `Thinking`,
   `Responding`, `Running <tool>`, or `Approval required`. It follows semantic state; action required
-  outranks ambient work, idle is blank, and it owns no animation clock. Show the approval label in the visible primary card; otherwise in the activity line.
-  Rejected: duplicate labels on adjacent lines.
+  outranks ambient work, and idle is blank. While the agent works the row opens with the mark's core
+  moving, then the label, then in muted text how long the step has run and at what effort, and once
+  nothing has arrived for a while, how long it has been quiet. The mark wears blue, the server-tool
+  colour while a provider-run search is the work, and stands still in the action-required colour
+  while approval is required. Motion runs on the one visible-only clock EFF-4 owns, shared with the
+  effort rail; it changes presentation only. Show the approval label in the visible primary card;
+  otherwise in the activity line. Rejected: duplicate labels on adjacent lines; a still row, which
+  during a thirty-second silent turn read as a hang; a token count estimated from streamed
+  characters, because the row claims only what the route reported; turning the row red when the
+  route is quiet, because quiet is not failure.
+- **An empty conversation shows the mark.** Before the first message the transcript holds the mark
+  centred, the product's name beneath it, drawn in cells at the odd size nearest square for the
+  terminal's measured cell; it moves on the same clock and leaves with the first message. Rejected:
+  a fixed cell size, which is square in one font only.
 - A User-controlled sub-agent's input takes its rows from its **own** surface. It may never consume
   the rows guaranteed to the primary conversation: focusing a worker never squeezes the primary off screen.
 - **The composer completes the token it starts with.** `$` lists Skills and `/` lists Commands in
@@ -508,7 +520,10 @@ Each of these has one visual treatment. Colour carries identity and status; a ma
 joins it where that marker lines up into a column the eye can run down, which is how a transcript
 full of concurrent agents stays navigable:
 
-- User message
+- User message: its rows sit on a band of lifted ground across the conversation's width, opened by a
+  `›` in blue, continuation indented under the text; nothing else marks it. Rejected: an
+  accent-coloured bar down the turn's height, which shouted; folding long messages, because the
+  transcript already owns long text.
 - Assistant message, streaming and final
 - Reasoning summary, named `reasoning` and visually quiet
 - Tool call: `[ ] queued`, `[~] running`, `[?] approval required`, `[+] succeeded`, `[!] failed`,
