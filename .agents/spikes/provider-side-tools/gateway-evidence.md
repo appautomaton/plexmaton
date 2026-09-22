@@ -154,3 +154,23 @@ and are honest.
 Measured again 2026-09-21 through the branch binary and a direct stream: every `web_search_call`
 arrived as `search` with an empty `query`; every `done` came after the last message finished, while
 each `added` came at its true position, which is why the row is placed at `added`.
+
+## The whole turn arrives at once
+
+Measured 2026-09-21 on a live turn with six searches through the branch binary, from the session
+journal's request timing: headers came back 0.9 s after dispatch, then nothing for 31 s; the first
+event and the terminal event arrived 50 ms apart, carrying five reasoning items, six text items, six
+`web_search_call` items and about 4,200 output tokens. The direct stream measured above did the same
+over 19 s. Every other route on this gateway streams through the same adapter, luna's first event at
+10 s of a 17 s turn and deepseek's at 1.2 s of 3 s, so the hold is not in Plexmaton. Nor is it in the
+gateway, read at snapshot v7.3.11: toward a Claude-compatible upstream other than `api.anthropic.com`
+it asks for `text/event-stream` with `Accept-Encoding: identity` (`applyTransportNegotiation` in
+`claude_executor_request.go`), scans the body line by line and translates each event as it is read
+(`claude_executor_stream.go`): text deltas at `content_block_delta`, a search's `added` at
+`content_block_start`; only a search's `done` waits for `message_stop`, because this route sends no
+result block. What remains is `api.meta.ai`, which on the Messages surface releases the reply when
+the turn ends, at least with the hosted tool declared. Whether the same route streams without
+`server_tools` is unmeasured: the journals' only other muse attempt failed at the gateway, and the
+Chat Completions runs above recorded content, not arrival times. The native `meta-api-key` route in
+[Meta route evidence](./meta-route.md) is the untried variable, and the one that would also restore
+queries and citations.
