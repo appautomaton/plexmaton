@@ -132,7 +132,6 @@ pub(crate) enum MenuRow {
 pub(crate) struct ComposerMenu {
     pub(crate) efforts: Option<Vec<ReasoningEffort>>,
     pub(crate) effort_feedback: Option<String>,
-    pub(crate) effort_phase: u16,
     skills: Vec<SkillChoice>,
     models: models::ModelCatalog,
     pub(crate) model_feedback: Option<String>,

@@ -119,7 +119,8 @@ fn effort_provider_default_does_not_preselect_an_explicit_level() {
     assert_eq!(workspace.state.reasoning_effort(), Some(Effort::Default));
 }
 
-/// EFF-3/EFF-4/FR-4: real frames keep transcript/rules/status static while visible max cells animate.
+/// EFF-3/EFF-4/FR-4/MOT-3: real frames keep transcript/rules/status static while visible max cells
+/// animate, and a tick advances no semantic revision.
 #[test]
 fn effort_animation_changes_only_visible_max_cells_and_stops_when_hidden() {
     use unicode_width::UnicodeWidthStr;
@@ -131,10 +132,8 @@ fn effort_animation_changes_only_visible_max_cells_and_stops_when_hidden() {
         let before = terminal.backend().buffer().clone();
         let revision = workspace.state.revision();
         let now = Instant::now();
-        workspace
-            .effort_animation_deadline(now)
-            .expect("visible timer");
-        workspace.advance_effort_animation(now + std::time::Duration::from_millis(1700));
+        workspace.motion_deadline(now).expect("visible timer");
+        workspace.advance_motion(now + std::time::Duration::from_millis(1700));
         assert_eq!(workspace.state.revision(), revision);
         let work = workspace
             .draw(&mut terminal)
@@ -165,11 +164,11 @@ fn effort_animation_changes_only_visible_max_cells_and_stops_when_hidden() {
         workspace.handle(&key(KeyCode::Esc));
         workspace.draw(&mut terminal).expect("close");
         assert!(
-            workspace.effort_animation_deadline(now).is_some(),
+            workspace.motion_deadline(now).is_some(),
             "composer max remains visible"
         );
         let before = terminal.backend().buffer().clone();
-        workspace.advance_effort_animation(now + std::time::Duration::from_millis(2000));
+        workspace.advance_motion(now + std::time::Duration::from_millis(2000));
         workspace.draw(&mut terminal).expect("composer animation");
         let diff = before.diff(terminal.backend().buffer());
         assert_eq!(
@@ -187,10 +186,38 @@ fn effort_animation_changes_only_visible_max_cells_and_stops_when_hidden() {
             ratatui::crossterm::event::KeyModifiers::CONTROL,
         )));
         workspace.draw(&mut terminal).expect("drawer");
-        assert!(workspace.effort_animation_deadline(now).is_none());
-        workspace.advance_effort_animation(now + std::time::Duration::from_secs(10));
+        assert!(workspace.motion_deadline(now).is_none());
+        workspace.advance_motion(now + std::time::Duration::from_secs(10));
         assert!(!workspace.needs_draw());
     }
+}
+
+/// MOT-1: while anything visible moves there is one deadline, and asking again is the same wake;
+/// a late wake lands on the current phase and counts the next tick from itself, queuing nothing.
+#[test]
+fn mot_1_one_deadline_serves_every_mover_and_late_wakes_coalesce() {
+    let (mut workspace, _) = open(88, &Effort::EXPLICIT, Effort::Max);
+    let now = Instant::now();
+    let first = workspace
+        .motion_deadline(now)
+        .expect("a visible max label moves");
+    assert_eq!(
+        workspace.motion_deadline(now + std::time::Duration::from_millis(5)),
+        Some(first),
+        "asking again does not re-arm"
+    );
+    let late = now + std::time::Duration::from_secs(3);
+    workspace.advance_motion(late);
+    assert_eq!(
+        workspace.state.motion_phase(),
+        45,
+        "three seconds at fifteen phases a second"
+    );
+    assert_eq!(
+        workspace.motion_deadline(late),
+        Some(late + std::time::Duration::from_millis(67)),
+        "the next wake counts from the late one"
+    );
 }
 
 /// EFF-3/EFF-4: static xhigh in both places owns no ambient wake.
@@ -198,8 +225,8 @@ fn effort_animation_changes_only_visible_max_cells_and_stops_when_hidden() {
 fn effort_xhigh_labels_remain_static_without_an_animation_deadline() {
     let (mut workspace, _) = open(88, &Effort::EXPLICIT, Effort::Xhigh);
     let now = Instant::now();
-    assert!(workspace.effort_animation_deadline(now).is_none());
-    workspace.advance_effort_animation(now + std::time::Duration::from_secs(10));
+    assert!(workspace.motion_deadline(now).is_none());
+    workspace.advance_motion(now + std::time::Duration::from_secs(10));
     assert!(!workspace.needs_draw());
 }
 

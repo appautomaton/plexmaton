@@ -5,7 +5,7 @@
 | Phase | [Phase 04](../phases/phase-04-product-polish.md) stage 34 |
 | Contract | [ui-ux](../ui-ux.md) §transcript grammar and its activity-line rule; EFF-4 in [reasoning-effort](../specs/reasoning-effort.md); FR-1 in [frame-loop](../specs/frame-loop.md); TR-6 in [transcript-layout](../specs/transcript-layout.md); SEL-1 and SEL-2 in [selection-and-copy](../specs/selection-and-copy.md) |
 | Evidence | [Conversation chrome spike](../spikes/conversation-chrome/README.md): the rendered candidates the user chose from and the survey of three other CLIs |
-| Status | Slices 1 and 2 of 5 implemented and locally verified |
+| Status | Slices 1–3 of 5 implemented and locally verified |
 
 ## Outcome
 
@@ -14,18 +14,9 @@ row that moves and says only what is known: how long the step has run, at what e
 the route has been quiet. Both are presentation. Removing either changes no journal entry, no
 request and no replay.
 
-## Contract, inline until code cites it
+## Contract
 
-**MOT-1 — One visible-only motion clock.** Every moving cell in the workspace wakes on the deadline
-EFF-4 already owns. Absence of any visible moving cell disarms it; late wakes coalesce into the
-current phase without queuing missed frames.
-
-**MOT-2 — A mark frame is one cell.** Every glyph in a motion sequence has display width one under
-the width rules the product already applies to its markers, and a test proves it for every
-sequence, so a frame can never widen a row.
-
-**MOT-3 — Motion changes presentation only.** A phase change invalidates the painted frame and never
-the semantic revision (FR-1). Replaying a journal reproduces the same rows with the clock stopped.
+MOT-1 to MOT-3 live in [motion](../specs/motion.md), promoted when the motion owner cited them.
 
 ## Slices
 
@@ -42,10 +33,11 @@ the semantic revision (FR-1). Replaying a journal reproduces the same rows with 
    plain `Message` before a model is named; a collapsed composer and a worker's input keep naming
    their agent, because there the name does distinguish. Closed by the renamed COM-4 test, refreshed
    frames, and every PTY smoke waiting on its own model's title.
-3. **Motion owner.** The effort animation in `workspace/effort.rs` becomes the workspace's motion
-   owner: one deadline, any number of visible users, the effort rail its first user with no change
-   in behaviour. Closes with the existing effort tests passing unchanged and a test that nothing
-   visible moving means no wake (MOT-1).
+3. **Motion owner — implemented.** The effort rail's clock became the workspace's one motion owner:
+   one deadline, each moving thing answering only whether it is visible, the phase held at the top
+   of view state where every renderer reads it. The effort rail is its first user with no change in
+   behaviour. Closed by the effort tests passing unchanged and
+   `mot_1_one_deadline_serves_every_mover_and_late_wakes_coalesce`.
 4. **Activity line.** The row opens with the mark's core moving, then the label, then muted `· 11s ·
    high effort`, and after five seconds without a model event `· quiet for 31s`. Elapsed reads
    `11s`, `2m 11s`, `1h 2m`. The mark wears blue, the server-tool colour while a provider-run search
@@ -55,8 +47,8 @@ the semantic revision (FR-1). Replaying a journal reproduces the same rows with 
    their terminal font settles, recorded there. Closes with frames for thinking, responding, running
    tool, running search, approval, compacting and quiet at three widths; MOT-2 for the cycle; MOT-3
    as a test that a tick advances no semantic revision.
-5. **Documents.** Evidence tables current; SVG review of the frames attached; MOT-1 to MOT-3
-   promoted to a spec when code cites them; this plan deleted; the phase row says done.
+5. **Documents.** Evidence tables current; SVG review of the frames attached; this plan deleted;
+   the phase row says done.
 
 ## Order and why
 

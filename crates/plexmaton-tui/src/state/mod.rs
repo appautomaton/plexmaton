@@ -24,6 +24,7 @@ mod ingest;
 mod input_queue;
 mod inspect;
 mod inspector;
+mod motion;
 mod notices;
 mod ordered;
 mod restoration;
@@ -135,6 +136,8 @@ pub struct ViewState {
     inputs: BTreeMap<AgentId, TextInput>,
     skill_bindings: composer_menu::SkillBindings,
     composer_menu: composer_menu::ComposerMenu,
+    /// The shared motion clock's phase (MOT-1); presentation reads it, semantics never do.
+    motion_phase: u16,
     inspector: Inspector,
     /// Which semantic entries the user opened, plus the one under the pointer.
     disclosure: DisclosureState,

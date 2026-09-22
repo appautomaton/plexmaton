@@ -64,7 +64,7 @@ pub(crate) fn lines(
             let x = stop(width, index);
             let available = state.effort_available(level);
             let chosen = selected == Some(level);
-            let phase = if chosen { state.effort_phase() } else { 0 };
+            let phase = if chosen { state.motion_phase() } else { 0 };
             let glyph = if chosen && level == ReasoningEffort::Max {
                 marker(phase)
             } else if chosen {

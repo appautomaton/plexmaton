@@ -293,7 +293,7 @@ pub(super) fn composer_title(state: &ViewState, palette: &Palette) -> Line<'stat
         line.spans
             .push(Span::styled(" · ", palette.style(Role::Muted)));
         line.spans
-            .extend(super::effort::effort_spans(effort, state.effort_phase()));
+            .extend(super::effort::effort_spans(effort, state.motion_phase()));
         line.spans.push(Span::raw(" "));
     }
     line

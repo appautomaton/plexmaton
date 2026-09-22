@@ -25,8 +25,9 @@ neutral and its vertical-only ticks are colored. Composer rules stay static; the
 letters and the selector's selected max marker/letters share one color phase. Xhigh stays static.
 The status script owns its original styling.
 
-**EFF-4 — Motion has a bounded visible owner.** Visible max labels share one 67 ms deadline;
-late wakes coalesce and absence of a visible max label disarms it. Animation changes three composer
+**EFF-4 — Motion has a bounded visible owner.** A visible max label is one of the moving things
+under [MOT-1](./motion.md): it runs on the workspace's one motion clock, and while no max label is
+visible it contributes no wake. Animation changes three composer
 foreground cells and, while selected, four selector cells; its marker cycles triangle, square,
 hexagon and circle in one cell every 1.6 s. Covered, collapsed, clipped or retry-editing composer
 labels own no wake. Animation changes neither semantic revision nor layout; FR-3 owns output.

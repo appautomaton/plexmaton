@@ -67,7 +67,7 @@ where
         let note_deadline = workspace.note_deadline();
         let drag_deadline = workspace.drag_autoscroll_deadline();
         let frame_deadline = frames.deadline();
-        let effort_deadline = workspace.effort_animation_deadline(Instant::now());
+        let motion_deadline = workspace.motion_deadline(Instant::now());
         let collaboration_enabled = collaboration
             .as_ref()
             .is_some_and(|collaboration| collaboration.can_poll(runtime));
@@ -112,7 +112,7 @@ where
                 workspace.advance_drag_autoscroll(Instant::now());
             }
             () = wait_for_deadline(frame_deadline) => {}
-            () = wait_for_deadline(effort_deadline) => { workspace.advance_effort_animation(Instant::now()); }
+            () = wait_for_deadline(motion_deadline) => { workspace.advance_motion(Instant::now()); }
             runtime_update = runtime.next_update() => {
                 let update = runtime_update.context("receive live runtime update")?;
                 let finished = apply_runtime_progress(
