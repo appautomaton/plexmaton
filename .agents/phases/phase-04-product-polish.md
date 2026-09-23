@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15, 17–27, 29 and 31–34 complete; stages 16 and 28 await the user's terminal test; stage 30 automatic-compaction visibility unstarted; stage 10 branding planned and unstarted |
+| Status | Active; stages 1–9, 11–29 and 31–34 complete; stage 30 automatic-compaction visibility unstarted; stage 10 branding planned and unstarted |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership; Phase 02 journal/accounting/budget projections; Phase 03 durable collaboration, owned child scheduling, Handoff/Stop, passive recovery and canonical Attention |
@@ -74,11 +74,10 @@ evidence file the frames and tests. Git holds how each was validated.
 15. **Frozen Markdown prefix — complete.** MD-4 and PRE-1 reuse completed blocks through the owned
     worker, keeping a full parser pass and falling back without losing admissible source. TR-4
     still moves bottom-aligned content as rows grow, so flicker is not shown eliminated.
-16. **Reasoning effort — awaits the user's terminal test.** The
-    [stage plan](../plans/phase-04-stage-16-reasoning-effort.md) owns per-model allowed levels and
-    the responsive spectrum; [EFF-1–EFF-5](../specs/reasoning-effort.md) implement the live
-    selector, idle driver replacement, shared composer and selector colours and the bounded max
-    animation.
+16. **Reasoning effort — complete.** [EFF-1–EFF-5](../specs/reasoning-effort.md): `/effort` over
+    each model's declared levels, the full spectrum with unavailable stops dark and skipped, shared
+    composer and selector colours and the bounded max animation; a change applies at an idle
+    boundary and the next request carries it. The user tested it in their terminal on 2026-09-23.
 17. **Math projection — complete.** MTH-1–MTH-5 and MD-1–MD-4: joined short radicals, the multiline
     log-sum-exp loss and engine-owned compound root indices
     ([review](../evidence/math-layout.md#rendered-and-terminal-evidence)). Tall and script roots
@@ -118,13 +117,12 @@ evidence file the frames and tests. Git holds how each was validated.
     process; selection keeps colours and emphasis
     ([frames](../evidence/markdown.md#native-syntax-validation)). The user has not yet reviewed the
     theme in their terminal.
-28. **A model switch degrades — awaits the user's terminal test.** The
-    [stage plan](../plans/phase-04-stage-28-model-switch-degrades.md) owns the rule that a wire
-    encoder carries what the destination dialect accepts instead of refusing an output whose replay
-    sidecars another model produced. MDL-1 and PRV-3 change: a switch is no longer refused for
-    anything in the conversation's past, a finished thought the destination cannot replay is carried
-    as text, an interrupted one is still omitted, and tool-call ids take a shape every dialect
-    accepts. COM-3's route reports what a switch cost, when it cost anything.
+28. **A model switch degrades — complete.** Nothing in a conversation's past refuses a switch
+    (MDL-1): replay the destination cannot use is carried as content under PRV-3, a finished thought
+    as text kept apart from the answer, an interrupted one omitted, tool-call ids in a shape every
+    dialect accepts; switching back replays the originals exactly, and COM-3's route says once what
+    a switch cost. The user tested both directions in their terminal on 2026-09-23. Whether live
+    providers accept every degraded shape remains unproven, since no local evidence can show it.
 29. **Compaction declines instead of paying to find out — complete.** CPL-3 answers before the
     summarizer is asked when a conversation is inside its retention window; `/compact --force`
     removes that gate, CMC-2's first declared flag. Publication no longer refuses a replacement for

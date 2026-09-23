@@ -26,7 +26,8 @@ sidecars stay in the record, and selecting the original model again replays them
 conversation is told once, afterwards, when a switch cost it that. Rejected: refusing the switch,
 which read replay compatibility as a property of the conversation rather than of one encoder, and so
 welded every conversation that had ever reasoned to the model that produced it — its own siblings
-included, since compatibility carries the exact wire id.
+included, since compatibility carries the exact wire id; and arming the switch for a second press,
+which the contract keeps for what cannot be undone, while this loses nothing.
 
 **MDL-2 — A model is an exact configured pair.** The CLI supplies bounded menu summaries from its
 immutable provider/model registry; a selected row carries both identities. Only acceptance updates
