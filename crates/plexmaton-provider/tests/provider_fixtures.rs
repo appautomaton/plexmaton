@@ -508,6 +508,27 @@ fn prv_3_any_of_the_four_compatibility_axes_degrades_rather_than_refusing() {
     }
 }
 
+/// PRV-3: Chat's assistant content is one string, so the pieces a degraded reply carries are kept
+/// apart by a blank line. Run together, a finished thought reads as the opening of the answer.
+#[test]
+fn prv_3_chat_keeps_carried_pieces_apart_with_a_blank_line() {
+    let selected = profile(ModelApi::OpenaiChatCompletions);
+    let request = degradable_request(foreign_compatibility());
+    let encoded = encode_request(&selected, &request, &[], None)
+        .unwrap_or_else(|error| panic!("a foreign replay must degrade, not refuse: {error}"));
+    let assistant: Vec<_> = encoded["messages"]
+        .as_array()
+        .unwrap_or_else(|| panic!("Chat messages are an array"))
+        .iter()
+        .filter(|message| message["role"] == "assistant")
+        .collect();
+    assert_eq!(assistant.len(), 1, "one reply stays one message");
+    assert_eq!(
+        assistant[0]["content"], "Visible answer.\n\nA finished thought.",
+        "each carried piece is its own paragraph"
+    );
+}
+
 /// A compatibility no supported dialect owns, so every one of them has to degrade.
 fn foreign_compatibility() -> ReplayCompatibility {
     let expected = profile(ModelApi::OpenaiResponses).replay_compatibility();
