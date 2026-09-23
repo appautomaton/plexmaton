@@ -505,7 +505,7 @@ mod tests {
             .unwrap_or_else(|| panic!("the canonical scenario creates a primary agent"));
         let assert_activity = |state: &ViewState, expected: &str, role: Role| {
             let line = activity_line(state, &palette, 80, false);
-            let mark = super::activity::MARK[0];
+            let mark = super::activity::mark(0);
             assert!(
                 line.to_string().starts_with(&format!("{mark} {expected}")),
                 "the mark then {expected:?} lead the activity line: {line}"
@@ -555,8 +555,8 @@ mod tests {
         let line = activity_line(&approval.state, &palette, 80, false);
         assert!(
             line.to_string()
-                .starts_with(&format!("{} Approval required", super::activity::MARK[0])),
-            "approval stands still on the mark's first frame: {line}"
+                .starts_with(&format!("{} Approval required", super::activity::STILL)),
+            "approval stands still on the whole circle: {line}"
         );
         assert_eq!(line.spans[0].style, palette.style(Role::ActionRequired));
         assert_eq!(line.spans[2].style, palette.style(Role::ActionRequired));

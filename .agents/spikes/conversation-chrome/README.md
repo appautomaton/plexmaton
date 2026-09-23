@@ -9,14 +9,14 @@
 Every decision below was made by the user on a rendered frame, 2026-09-21 and 2026-09-22. The
 generators are in [`mockups/`](./mockups/); each writes one HTML page to
 `plexmaton-conversation-chrome/` under the system temporary directory, outside this corpus, and
-`spin.py`, `logo_term.py` and `cellsize.py` run in a terminal. Regenerate rather than trusting a description of them.
+`spin.py`, `mark-lively.py`, `logo_term.py` and `cellsize.py` run in a terminal. Regenerate rather than trusting a description of them.
 
 ## What the user chose
 
 | Surface | Chosen | Rejected on sight |
 | --- | --- | --- |
 | Activity line composition | mark, label, muted `· 32s · high effort`, `· quiet for 31s` once nothing has arrived; no token count | a red stall tell; estimated tokens |
-| Activity mark | N2, the Nerd Font's circle, rounded square and square, outline then filled: chosen 2026-09-22 in a kitty window beside the Unicode cycles; the user asked for the filled half to keep it simple yet ever changing | C2′ and C2″, which shook in the user's terminal because mixed-size Unicode shapes centre differently; filled squares; braille; quarter circles; Claude Code's star |
+| Activity mark | H: a dot grows into a circle, turns into a rounded square and a square, spins into a diamond and shrinks away through a smaller one, lingering on whole shapes, 1.6 s a cycle; chosen 2026-09-23 in kitty (`mark-lively.py`) after the user found N2 rigid and wanted it to grow from a point | N2, the circle, rounded square and square outline then filled, chosen 2026-09-22 and later found rigid; one size changing shape, and even steps retracing their path, likewise; a slice-by-slice sweep, which reads as progress; C2′ and C2″, which shook because mixed-size Unicode shapes centre differently; filled squares; braille; quarter circles; Claude Code's star |
 | User message | band of lifted ground with a blue `›`, continuation indented | the accent bar; a bare prefix; a hairline bar; a band alone |
 | Mark placement | centred in the empty conversation, name beneath, gone with the first message | a header or drawer slot, not yet asked for |
 | Mark motion | K4 as the base: frame breathes between weights and drifts between palette slots; centre morphs circle, ring, rounded square, square, solid and outline | K1 to K3 as they stood |
@@ -40,8 +40,16 @@ kitty answers `CSI 16 t` with the cell in pixels; `cellsize.py` shows the reply 
 Material Design glyphs used, all present at one advance in Sarasa Term SC Nerd and in Symbols Nerd
 Font Mono: `circle-small` F09DF, `circle-medium` F09DE, `circle` F0765, `circle-outline` F0766,
 `square` F0763, `square-outline` F0764, `square-rounded` F14FB, `square-rounded-outline` F14FC,
-`radiobox-marked` F043E, `record-circle` F0FEC, `circle-double` F0E95. The product already draws
-its header, tally and copy glyphs from this set.
+`radiobox-marked` F043E, `record-circle` F0FEC, `circle-double` F0E95, `rhombus` F070B,
+`rhombus-medium` F0A10, `square-small` F0A15, `square-medium` F0A13. The product already draws its
+header, tally and copy glyphs from this set.
+
+Measured in Maple Mono NF CN, in units of a 1000-unit em on a 600-unit cell: the family's filled
+shapes come at 168, 332 and 461 (the medium diamond), then 750 to 832, with nothing between, so a
+mark grows in steps rather than smoothly. Its small and medium sizes and its squares share one
+centre; the whole circle and diamond sit 41 units right of it, an offset nobody has seen move.
+Maple Mono's own `·`, `•`, `▪`, `●` and `■` centre on the cell instead, 75 to 116 units left of
+the family's, so they cannot join its cycle; `▢`, `◼` and `⬤` are not in the font and fall back.
 
 ## What the other CLIs do, read from their source
 

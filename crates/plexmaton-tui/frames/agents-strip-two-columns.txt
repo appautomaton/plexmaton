@@ -16,7 +16,7 @@
 │interactive.                                                        ││                                                                    │
 │                                                                    ││                                                                    │
 │received from Agent B · UI study · Routing stays centralized and z-…││                                                                    │
-│󰝦 Thinking…                                                  ( !2 ) ││                                                                    │
+│󰧟 Thinking…                                                  ( !2 ) ││                                                                    │
 │                                                                    ││                                                                    │
 ── Message ───────────────────────────────────────────────────────────│                                                                    │
  Type a message · ⇥ to focus                                          │Controller unavailable · input locked                               │
