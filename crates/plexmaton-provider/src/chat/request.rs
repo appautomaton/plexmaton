@@ -163,10 +163,15 @@ fn degraded_assistant(carried: &[Carried<'_>]) -> Option<Value> {
     let mut pending = PendingAssistant::default();
     for block in carried {
         match block {
-            Carried::Text(text) => pending
-                .content
-                .get_or_insert_with(String::new)
-                .push_str(text),
+            // Chat's assistant content is one string, so carried pieces are kept apart by a blank
+            // line rather than run together: a thought must not read as the start of the answer.
+            Carried::Text(text) => {
+                let content = pending.content.get_or_insert_with(String::new);
+                if !content.is_empty() {
+                    content.push_str("\n\n");
+                }
+                content.push_str(text);
+            }
             Carried::Call(call) => pending.calls.push(json!({
                 "id": degrade::atom_call_id(true, &call.call_id),
                 "type": "function",

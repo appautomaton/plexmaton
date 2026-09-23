@@ -56,11 +56,15 @@ readable by the next model; an interrupted one is left out, half a sentence attr
 saying what the model never said, and a sidecar is what tells the two apart; a call keeps its name
 and arguments, drops every shape legal only beside the replay that authenticates it — Gemini's
 `thought` flag, any upstream id — and takes an id every dialect accepts, applied to the call and to
-its result or to neither; a replay-only block is dropped, having been nothing but its sidecar. A
-reply carrying nothing is not sent as an empty one. Sidecars stay in the record, so the model that
-wrote them replays them exactly when selected again, and occupancy is measured for what ships.
+its result or to neither; a replay-only block is dropped, having been nothing but its sidecar.
+Carried pieces stay apart: each is its own block where the dialect has blocks, and Chat, whose
+assistant content is one string, puts a blank line between them, so a thought never reads as the
+start of the answer. A reply carrying nothing is not sent as an empty one. Sidecars stay in the
+record, so the model that wrote them replays them exactly when selected again, and occupancy is
+measured for what ships.
 Rejected: dropping foreign reasoning outright, cheaper and free of the unsigned-thought hazard, but
-discarding a finished chain of reasoning the next model could have used.
+discarding a finished chain of reasoning the next model could have used; and Chat content as a list
+of text parts, which some compatible gateways refuse on an assistant message.
 
 Unsigned reasoning — a reply interrupted before its own replay existed — stays in the journal and
 presentation, and wire encoders omit
