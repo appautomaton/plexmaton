@@ -221,10 +221,6 @@ pub(crate) fn note_lines(
                 palette.style(Role::NewInformation),
             ));
         }
-        ConversationNote::Compacted => lines.push(Line::styled(
-            "✓ Context compacted.",
-            palette.style(Role::NewInformation),
-        )),
         ConversationNote::CompactionRefused(refusal) => {
             let role = if refusal.offers_an_action() {
                 Role::ActionRequired

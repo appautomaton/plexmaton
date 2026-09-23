@@ -277,16 +277,11 @@ impl ViewState {
                 label,
                 pointer,
             } => self.apply_artifact(agent_id, item_id, artifact_id, label, pointer)?,
-            ConversationEvent::RuntimeWarning {
-                agent_id,
-                item_id,
-                message,
-            } => self.apply_runtime_message(agent_id, item_id, message, false)?,
-            ConversationEvent::RuntimeError {
-                agent_id,
-                item_id,
-                message,
-            } => self.apply_runtime_message(agent_id, item_id, message, true)?,
+            event @ (ConversationEvent::RuntimeWarning { .. }
+            | ConversationEvent::RuntimeError { .. }) => self.apply_runtime_message(event)?,
+            event @ (ConversationEvent::CompactionStarted { .. }
+            | ConversationEvent::CompactionEnded { .. }
+            | ConversationEvent::ContextCompacted { .. }) => self.apply_compaction(event)?,
         };
         Ok(changed)
     }
@@ -436,19 +431,50 @@ impl ViewState {
         Ok(changed)
     }
 
-    fn apply_runtime_message(
-        &mut self,
-        agent_id: AgentId,
-        item_id: TranscriptItemId,
-        message: String,
-        error: bool,
-    ) -> Result<bool, ReduceError> {
+    fn apply_runtime_message(&mut self, event: ConversationEvent) -> Result<bool, ReduceError> {
+        let (agent_id, item_id, message, error) = match event {
+            ConversationEvent::RuntimeWarning {
+                agent_id,
+                item_id,
+                message,
+            } => (agent_id, item_id, message, false),
+            ConversationEvent::RuntimeError {
+                agent_id,
+                item_id,
+                message,
+            } => (agent_id, item_id, message, true),
+            _ => unreachable!("only runtime messages are routed here"),
+        };
         self.validate_entry_owner(&agent_id, &item_id)?;
         let changed =
             self.agent_mut(&agent_id)?
                 .runtime_message(item_id.clone(), message, error)?;
         self.remember_entry_owner(item_id, agent_id);
         Ok(changed)
+    }
+
+    /// A summarizer's start or end (CPL-6), or the row its checkpoint leaves (CPL-4), in the
+    /// conversation whose context it compacts.
+    fn apply_compaction(&mut self, event: ConversationEvent) -> Result<bool, ReduceError> {
+        match event {
+            ConversationEvent::CompactionStarted { agent_id } => {
+                self.agent_mut(&agent_id)?;
+                Ok(self.set_compacting(&agent_id, true))
+            }
+            ConversationEvent::CompactionEnded { agent_id } => {
+                self.agent_mut(&agent_id)?;
+                Ok(self.set_compacting(&agent_id, false))
+            }
+            ConversationEvent::ContextCompacted { agent_id, item_id } => {
+                self.validate_entry_owner(&agent_id, &item_id)?;
+                let changed = self
+                    .agent_mut(&agent_id)?
+                    .context_compacted(item_id.clone())?;
+                self.remember_entry_owner(item_id, agent_id);
+                Ok(changed)
+            }
+            _ => unreachable!("only compaction events are routed here"),
+        }
     }
 
     fn push_notice(&mut self, notice: NoticeView) {
@@ -924,6 +950,70 @@ mod tests {
     }
 
     /// ENT-1: an entry identity fixes its owner as well as its position.
+    /// CPL-6/CPL-7: while a summarizer runs for a conversation its work reads `Compacting…`,
+    /// whoever started it; its own end returns the turn's work, and another conversation's end
+    /// leaves it running.
+    #[test]
+    fn a_running_summarizer_reads_compacting_until_its_own_end() {
+        use crate::state::CurrentWork;
+        let mut state = ViewState::default();
+        state.apply(envelope(1, created("agent-a")));
+        state.apply(envelope(2, created("agent-b")));
+        assert_eq!(state.current_work(), Some(CurrentWork::Thinking));
+        let started = |id| ConversationEvent::CompactionStarted {
+            agent_id: agent_id(id),
+        };
+        let ended = |id| ConversationEvent::CompactionEnded {
+            agent_id: agent_id(id),
+        };
+        state.apply(envelope(3, started("agent-a")));
+        assert_eq!(state.current_work(), Some(CurrentWork::Compacting));
+        state.apply(envelope(4, ended("agent-b")));
+        assert_eq!(
+            state.current_work(),
+            Some(CurrentWork::Compacting),
+            "another conversation's end"
+        );
+        state.apply(envelope(5, ended("agent-a")));
+        assert_eq!(state.current_work(), Some(CurrentWork::Thinking));
+    }
+
+    /// CPL-4: an acknowledged checkpoint is a finished system row in the conversation that owns
+    /// it, saying what the workspace says, and arrives once.
+    #[test]
+    fn a_checkpoint_is_one_finished_system_row() {
+        let mut state = ViewState::default();
+        state.apply(envelope(1, created("agent-a")));
+        let compacted = ConversationEvent::ContextCompacted {
+            agent_id: agent_id("agent-a"),
+            item_id: item_id("agent-a-item-j9"),
+        };
+        assert_eq!(
+            state.apply(envelope(2, compacted.clone())),
+            ApplyOutcome::Accepted
+        );
+        let rows: Vec<_> = state
+            .agent(&agent_id("agent-a"))
+            .map(|agent| agent.transcript().cloned().collect())
+            .unwrap_or_default();
+        let [row] = rows.as_slice() else {
+            panic!("one row: {rows:?}");
+        };
+        assert_eq!(
+            (row.role, row.kind, row.finalized, row.source.as_str()),
+            (
+                TranscriptRole::System,
+                TranscriptTextKind::Message,
+                true,
+                super::super::agent::CONTEXT_COMPACTED,
+            )
+        );
+        assert!(matches!(
+            state.apply(envelope(3, compacted)),
+            ApplyOutcome::Rejected(ReduceError::DuplicateTranscriptItem(_))
+        ));
+    }
+
     #[test]
     fn an_entry_identity_cannot_move_between_agents() {
         let mut state = ViewState::default();

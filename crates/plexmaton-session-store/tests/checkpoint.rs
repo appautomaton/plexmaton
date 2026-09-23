@@ -313,10 +313,15 @@ fn failed_compaction_diagnostic_reopens_without_exposing_partial_output() {
     let live_failure = agent
         .finish_compaction_attempt(finished)
         .expect("finish failed compaction");
-    let [live_diagnostic] = live_failure.events.as_slice() else {
-        panic!("failed compaction emits one diagnostic")
+    // The summarizer's end is told live only (CPL-6); the diagnostic is the durable fact.
+    let [ended, live_diagnostic] = live_failure.events.as_slice() else {
+        panic!("failed compaction ends its summarizer and emits one diagnostic")
     };
-    let live_diagnostic = live_diagnostic.clone();
+    assert!(matches!(
+        ended.event,
+        ConversationEvent::CompactionEnded { .. }
+    ));
+    let live_diagnostic = live_diagnostic.event.clone();
     persist(&mut file, live_failure);
     persist(
         &mut file,
@@ -358,7 +363,8 @@ fn failed_compaction_diagnostic_reopens_without_exposing_partial_output() {
             .filter(|event| matches!(event.event, ConversationEvent::RuntimeError { .. }))
             .collect();
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0], &live_diagnostic);
+        // Live numbers include the summarizer's live-only events, so the fact is compared.
+        assert_eq!(diagnostics[0].event, live_diagnostic);
     }
     assert_eq!(
         reopened

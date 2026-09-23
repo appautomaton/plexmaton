@@ -49,7 +49,8 @@ returns any later refusal to that same worker composer.
 
 **COM-5 — Current work is derived; its readings are presentation.** The conversation's activity
 line, over one blank row above the composer's top rule, shows at most one label: `Approval
-required` outranks `Running <tool>`, then `Responding`, then `Thinking`; idle with nothing waiting
+required` outranks `Compacting` while a summarizer runs (CPL-6), then `Running <tool>`, then
+`Responding`, then `Thinking`; idle with nothing waiting
 takes no rows. The label is derived from the semantic projection; the composer's rules never carry
 it. The readings are dated as the workspace applies events and drawn for the motion clock's
 instant, so they never move the semantic revision. Elapsed counts the primary's turn, from when it

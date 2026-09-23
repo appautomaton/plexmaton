@@ -251,15 +251,48 @@ mod tests {
             [JournalRecord::CompactionAttemptFinished { fact, .. }]
                 if fact.attempt_id() == attempt_id
         ));
-        assert!(terminal.events.is_empty());
+        // The summarizer's running state is told live and never journalled (CPL-6).
+        let events = |reaction: &crate::Reaction| {
+            reaction
+                .events
+                .iter()
+                .map(|envelope| envelope.event.clone())
+                .collect::<Vec<_>>()
+        };
+        let agent_id = AgentId::new("compaction-agent").expect("agent");
+        assert_eq!(
+            events(authorization),
+            [ConversationEvent::CompactionStarted {
+                agent_id: agent_id.clone()
+            }]
+        );
+        assert_eq!(
+            events(terminal),
+            [ConversationEvent::CompactionEnded { agent_id }]
+        );
     }
 
     fn assert_checkpoint_context(
         projection: &crate::JournalProjection,
         checkpoint_id: ConversationEntryId,
         events_before: &[plexmaton_core::ConversationEventEnvelope],
+        committed: &crate::Reaction,
     ) {
-        assert_eq!(projection.events(), events_before);
+        let (row, before) = projection
+            .events()
+            .split_last()
+            .expect("the checkpoint leaves a row");
+        assert_eq!(before, events_before, "nothing already shown changes");
+        assert!(
+            matches!(&row.event, ConversationEvent::ContextCompacted { .. }),
+            "{row:?}"
+        );
+        let live: Vec<_> = committed.events.iter().map(|live| &live.event).collect();
+        assert_eq!(
+            live,
+            [&row.event],
+            "live and replay show the one row under one identity"
+        );
         assert_eq!(
             projection.context_epoch(),
             &ContextEpoch::Checkpoint(checkpoint_id)
@@ -278,7 +311,8 @@ mod tests {
     }
 
     /// CPL-1/CPL-3/CPL-4/CPL-5/CPL-6: one acknowledged checkpoint replaces only model context,
-    /// retains its full audit output once, and refreshes the same active agent step.
+    /// retains its full audit output once, refreshes the same active agent step, and leaves one row
+    /// where it landed, the same live and when the journal is reopened.
     #[test]
     fn checkpoint_preserves_history_and_refreshes_the_active_step() {
         let (mut agent, step_id, plan) = open_compactable_turn();
@@ -328,7 +362,7 @@ mod tests {
             .journal()
             .project(&head)
             .expect("checkpoint projection");
-        assert_checkpoint_context(&projection, checkpoint_id, &events_before);
+        assert_checkpoint_context(&projection, checkpoint_id, &events_before, &committed);
         assert_eq!(
             agent
                 .journal()

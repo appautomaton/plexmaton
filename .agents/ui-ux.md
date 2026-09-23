@@ -154,8 +154,10 @@ other rule about input follows from this one.
   it, which costs the affordance and jumps the tail of the transcript three rows; one row of jump is
   acceptable and zero costs too much screen on a small terminal.
 - **The conversation ends in its activity line** while there is work or a request waiting, with one
-  blank row between it and the composer: `Thinking`, `Responding`, `Running <tool>`, or `Approval
-  required`. It follows semantic state; action required outranks ambient work. Idle with nothing
+  blank row between it and the composer: `Thinking`, `Responding`, `Running <tool>`, `Compacting`,
+  or `Approval required`. It follows semantic state; action required outranks ambient work. A
+  compaction says `Compacting` while it runs, whether the user asked for it or the runtime took it
+  on its own. Idle with nothing
   waiting, it takes no rows, so the last reply sits one blank row from the composer; the rows open
   and close only with the conversation's own facts, never with the pointer. While the agent works
   the mark's core moves, and after the label the row says how long the turn has run, not counting
@@ -548,6 +550,12 @@ full of concurrent agents stays navigable:
   conversations receive one `handoff · Controller: User` row from the canonical durable fact
 - Undelivered steering: a message that never reached its worker, with its original text intact
 - System text, named and muted
+- Context compacted: one system row where a checkpoint landed, `Context compacted: the conversation
+  above continues from a summary.` A checkpoint the runtime takes on its own lands mid-turn,
+  between the message that prompted it and the answer; one the user asks for lands after the last
+  entry. It is there again when the conversation is reopened (CPL-4). The user chose it from
+  rendered frames on 2026-09-23. Rejected: the transient note `/compact` used to leave, which a
+  reopened conversation lost and an automatic checkpoint never had
 - Warning and error, each carrying its colour and its name
 - Typeset display math and source reveal
 

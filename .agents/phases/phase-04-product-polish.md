@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–29 and 31–34 complete; stage 30 automatic-compaction visibility unstarted; stage 10 branding planned and unstarted |
+| Status | Active; stages 1–9 and 11–34 complete; stage 10 branding planned and unstarted |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership; Phase 02 journal/accounting/budget projections; Phase 03 durable collaboration, owned child scheduling, Handoff/Stop, passive recovery and canonical Attention |
@@ -127,12 +127,10 @@ evidence file the frames and tests. Git holds how each was validated.
     summarizer is asked when a conversation is inside its retention window; `/compact --force`
     removes that gate, CMC-2's first declared flag. Publication no longer refuses a replacement for
     coming back larger, because size is an estimate and quality is unread.
-30. **Automatic compaction is invisible — unstarted.** A checkpoint the runtime takes on its own
-    reports nothing: the same operation the user can ask for, taken automatically, leaves no line
-    in the conversation and the context silently halves. CPL-7 and CPL-9 name one operation with
-    two continuations; only the requested one reports. Needs a rendered frame first: an automatic
-    checkpoint lands mid-turn, between a submitted message and its answer, where a requested one
-    lands after the last entry.
+30. **Automatic compaction is visible — complete.** A checkpoint is one system row where it landed,
+    mid-turn when the runtime took it on its own, and there again on reopen (CPL-4); the activity
+    line says `Compacting…` while any summarizer runs (CPL-6). Requested and automatic compaction
+    look the same. The user chose both from [rendered frames](../evidence/compaction.md#rendered).
 31. **Test evidence says what kind it is — complete.** A readiness marker is now published by
     rename, which restored real proof for CTL-1, COL-4, COL-5, CHB-2 and CHB-3;
     [testing](../standards/testing.md) places a test by cost and determinism rather than by

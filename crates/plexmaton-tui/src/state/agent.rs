@@ -26,6 +26,10 @@ pub struct AgentView {
     pub(crate) retry: Option<super::RetryActions>,
 }
 
+/// What the conversation says where a compaction checkpoint landed.
+pub(crate) const CONTEXT_COMPACTED: &str =
+    "Context compacted: the conversation above continues from a summary.";
+
 /// One presentation-only note anchored after the entry that was last when it was reported,
 /// never a semantic entry. A newer note replaces it.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -453,6 +457,23 @@ impl AgentView {
                 TranscriptTextKind::Warning
             },
             source: message,
+            revision: 0,
+            finalized: true,
+        };
+        self.insert_terminal(entry_id, TranscriptEntryView::Text(item))
+    }
+
+    /// The system row a compaction checkpoint leaves where it landed (CPL-4): finished on arrival,
+    /// and the same whether the runtime or the user started it.
+    pub(super) fn context_compacted(
+        &mut self,
+        entry_id: TranscriptItemId,
+    ) -> Result<bool, ReduceError> {
+        let item = TranscriptItemView {
+            id: entry_id.clone(),
+            role: TranscriptRole::System,
+            kind: TranscriptTextKind::Message,
+            source: CONTEXT_COMPACTED.to_owned(),
             revision: 0,
             finalized: true,
         };
