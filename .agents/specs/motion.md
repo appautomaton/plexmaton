@@ -27,4 +27,4 @@ clock was doing.
 
 The phase is a count, not a time: renderers derive their frame from it, so two moving things on
 screen stay in step. The effort rail's marker and the activity line's mark each complete a cycle every
-1.6 s, the mark at three phases a frame over eight frames.
+1.6 s, the mark over seven frames holding unequal numbers of its 24 phases.

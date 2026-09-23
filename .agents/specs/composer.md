@@ -56,13 +56,16 @@ instant, so they never move the semantic revision. Elapsed counts the primary's 
 opens until it ends: it carries through the gaps between steps and stops while an approval or a
 question holds the turn on the user. Quiet appears after five seconds with nothing from the
 primary's own events, never a child's, and says nothing while the turn waits on the user. A short
-row drops effort, then quiet, then elapsed. The row opens with the mark: the Nerd Font's circle,
-rounded square and square, outline then filled, in blue for the agent's own work and the
-server-tool colour while a provider-run search is the work, standing still in the action-required
-colour while approval is required; it moves on the one visible-only clock (MOT-1, MOT-3). The
+row drops effort, then quiet, then elapsed. The row opens with the mark, from the Nerd Font's one
+Material Design family: a dot grows into a circle, turns into a rounded square and a square, spins
+into a diamond and shrinks away through a smaller one, lingering on the whole shapes. It is blue
+for the agent's own work and the server-tool colour while a provider-run search is the work, and
+stands still as the whole circle in the action-required colour while approval is required; it
+moves on the one visible-only clock (MOT-1, MOT-3). The
 row's right end holds the selection note (SEL-2) and the attention pill (ATT-1); while its rows are
 closed the selection note rides the status row instead (ui-ux §input). Rejected: current work on
-the composer's rule, which mixed the agent's doing with the user's typing.
+the composer's rule, which mixed the agent's doing with the user's typing; and a mark that changed
+shape at one size, or stepped evenly back along its own path, which the user found rigid.
 
 **COM-6 — Input selection names editable source.** A click places the caret; dragging retains a
 grapheme-boundary anchor, paints the source range, and release copies it through SEL-4. Typing or

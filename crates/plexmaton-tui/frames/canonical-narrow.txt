@@ -32,7 +32,7 @@
 │transcript remains interactive.                           │
 │                                                          │
 │received from Agent B · UI study · Routing stays centrali…│
-│󰝦 Thinking…                                        ( !1 ) │
+│󰧟 Thinking…                                        ( !1 ) │
 │                                                          │
 ── Message ─────────────────────────────────────────────────
  Type a message · ⇥ to focus                                

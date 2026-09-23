@@ -13,27 +13,49 @@ use crate::{
     theme::{Palette, Role},
 };
 
-/// Outline, then filled, each through circle, rounded square, square and back. One icon family
-/// from the Nerd Font the product already requires, so every frame centres alike. Rejected:
-/// Unicode geometric shapes of mixed sizes, which the user watched shake in their terminal.
-pub(crate) const MARK: [&str; 8] = [
-    "\u{F0766}", // circle-outline
-    "\u{F14FC}", // square-rounded-outline
-    "\u{F0764}", // square-outline
-    "\u{F14FC}",
-    "\u{F0765}", // circle
-    "\u{F14FB}", // square-rounded
-    "\u{F0763}", // square
-    "\u{F14FB}",
+/// A dot grows into a circle, turns into a rounded square and a square, spins into a diamond and
+/// shrinks away through a smaller one, lingering on the whole shapes and passing quickly through
+/// the small ones. One icon family from the Nerd Font the product already requires, whose small,
+/// medium and whole sizes share one centre, so growing never shakes. Each frame holds a whole
+/// number of the motion clock's phases, 24 in all: a cycle every 1.6 s, the effort rail's period.
+/// Rejected: Unicode geometric shapes of mixed sizes, which the user watched shake in their
+/// terminal; a change of shape at one size, and even steps retracing their path, which the user
+/// found rigid; a slice-by-slice sweep, which reads as progress.
+pub(crate) const MARK: [(&str, u16); 7] = [
+    ("\u{F09DF}", 3), // circle-small
+    ("\u{F09DE}", 1), // circle-medium
+    ("\u{F0765}", 6), // circle
+    ("\u{F14FB}", 2), // square-rounded
+    ("\u{F0763}", 5), // square
+    ("\u{F070B}", 4), // rhombus
+    ("\u{F0A10}", 3), // rhombus-medium
 ];
 
-/// Three of the clock's fifteen phases a second per frame: 200 ms, so a cycle takes 1.6 s, the
-/// effort rail's own period.
-const PHASES_PER_FRAME: u16 = 3;
+/// The phases one cycle of the mark takes.
+const CYCLE: u16 = {
+    let mut total = 0;
+    let mut index = 0;
+    while index < MARK.len() {
+        total += MARK[index].1;
+        index += 1;
+    }
+    total
+};
+
+/// The whole circle, which the mark holds while it stands still for an approval: the first frame is
+/// too small to be seen waiting.
+pub(crate) const STILL: &str = "\u{F0765}";
 
 /// The frame for a clock phase.
 pub(crate) fn mark(phase: u16) -> &'static str {
-    MARK[usize::from(phase / PHASES_PER_FRAME) % MARK.len()]
+    let mut left = phase % CYCLE;
+    for (frame, hold) in MARK {
+        if left < hold {
+            return frame;
+        }
+        left -= hold;
+    }
+    unreachable!("the phase is reduced modulo the cycle the holds sum to")
 }
 
 /// The activity line: what the agent is doing on the left; what the reader has selected and what
@@ -94,7 +116,7 @@ pub(crate) fn activity_line(
         let mark = if moving {
             mark(state.motion_phase())
         } else {
-            MARK[0]
+            STILL
         };
         left.push(Span::styled(mark, palette.style(mark_role)));
         left.push(Span::raw(" "));
@@ -240,22 +262,30 @@ mod tests {
 
     use unicode_width::UnicodeWidthStr;
 
-    use super::{MARK, PHASES_PER_FRAME, mark};
+    use super::{CYCLE, MARK, STILL, mark};
 
     /// MOT-2: every frame is one cell, so the mark can never widen the row.
     #[test]
     fn mot_2_every_activity_mark_frame_is_one_cell() {
-        for frame in MARK {
+        for (frame, _) in MARK {
             assert_eq!(frame.width(), 1, "{frame:?}");
         }
+        assert_eq!(STILL.width(), 1);
     }
 
-    /// MOT-1: the cycle divides the clock's, so the mark never jumps where the clock wraps.
+    /// MOT-1: the cycle divides the clock's, so the mark never jumps where the clock wraps, and
+    /// every frame is shown for the phases it holds.
     #[test]
     fn the_mark_cycle_divides_the_clock_cycle() {
-        let frames = u16::try_from(MARK.len()).expect("small");
-        assert_eq!(480 % (frames * PHASES_PER_FRAME), 0);
-        assert_eq!(mark(0), mark(480 - 480 % (frames * PHASES_PER_FRAME)));
-        assert_ne!(mark(0), mark(PHASES_PER_FRAME));
+        assert_eq!(CYCLE, 24, "one cycle every 1.6 s");
+        assert_eq!(480 % CYCLE, 0);
+        assert_eq!(mark(0), mark(480 - 480 % CYCLE));
+        let mut phase = 0;
+        for (frame, hold) in MARK {
+            for _ in 0..hold {
+                assert_eq!(mark(phase), frame, "phase {phase}");
+                phase += 1;
+            }
+        }
     }
 }
