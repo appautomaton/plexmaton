@@ -140,6 +140,10 @@ pub struct ViewState {
     composer_menu: composer_menu::ComposerMenu,
     /// The shared motion clock's phase (MOT-1); presentation reads it, semantics never do.
     motion_phase: u16,
+    /// How far the launch greeting has played, in motion phases, while it plays; presentation only.
+    greeting: Option<u16>,
+    /// The terminal's cell in pixels, when it reports one; the mark is squared against it.
+    cell: Option<crate::render::mark::CellSize>,
     /// When current work began and was last heard; presentation only.
     activity: activity::ActivityClock,
     inspector: Inspector,

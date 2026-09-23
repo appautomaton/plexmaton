@@ -171,10 +171,15 @@ other rule about input follows from this one.
   as the next tool's run; a token count estimated from streamed characters,
   because the row claims only what the route reported; turning the row red when the route is quiet,
   because quiet is not failure.
-- **An empty conversation shows the mark.** Before the first message the transcript holds the mark
-  centred, the product's name beneath it, drawn in cells at the odd size nearest square for the
-  terminal's measured cell; it moves on the same clock and leaves with the first message. Rejected:
-  a fixed cell size, which is square in one font only.
+- **Launch greets with the mark, once.** When Plexmaton starts on an empty conversation, the mark
+  plays once at its centre with the product's name beneath and then leaves: about two and a half
+  seconds on the one motion clock. It is drawn in braille, a rounded-square frame around a round
+  centre, at the size nearest square for the terminal's measured cell. Input never waits for it and
+  a first message ends it; `/new`, `/resume` and a reopened conversation are not greeted. The empty
+  conversation it leaves says nothing, the composer beneath already saying where to begin. The user
+  chose all of it in kitty on 2026-09-23. Rejected: a mark that stays and moves until the first
+  message, too insistent; box drawing around a one-cell glyph, too coarse; a fixed cell size, square
+  in one font only; a sentence about transcript items once it has gone, which read as a status.
 - A User-controlled sub-agent's input takes its rows from its **own** surface. It may never consume
   the rows guaranteed to the primary conversation: focusing a worker never squeezes the primary off screen.
 - **The composer completes the token it starts with.** `$` lists Skills and `/` lists Commands in

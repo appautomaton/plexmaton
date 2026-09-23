@@ -62,3 +62,8 @@ pub use workspace::{
     Workspace,
 };
 pub mod math;
+
+/// The mark: its block for the terminal's cell, the greeting's timeline, and its rows at a moment.
+pub mod mark {
+    pub use crate::render::mark::{CellSize, Moment, greeting, lines, size};
+}

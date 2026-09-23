@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9 and 11–34 complete; stage 10 branding planned and unstarted |
+| Status | Active; stages 1–34 complete; exit gate not yet assessed |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership; Phase 02 journal/accounting/budget projections; Phase 03 durable collaboration, owned child scheduling, Handoff/Stop, passive recovery and canonical Attention |
@@ -48,10 +48,11 @@ evidence file the frames and tests. Git holds how each was validated.
 9. **Composer skill picker — complete.** [SKP-1–SKP-4](../specs/composer-menu.md): `$` discovery
    above the primary input with keyboard and pointer completion; literal variables, currency and
    prose stay text.
-10. **Branding — unstarted.** The mark, a rounded-square frame around a circular centre, drawn in
-    cells at the odd size nearest square for the measured cell, first centred in an empty
-    conversation and moving on the one [motion](../specs/motion.md) clock. The
-    [stage plan](../plans/phase-04-stage-10-branding.md) owns the order.
+10. **Branding — complete.** Launch greets a new conversation with the mark once: drawn in braille,
+    a rounded-square frame around a round centre, it plays for about 2.5 s on the one
+    [motion](../specs/motion.md) clock and leaves the conversation blank (ui-ux §input). Chosen
+    in kitty from the [spike](../spikes/conversation-chrome/README.md)'s previews, after Grok's
+    braille logo; [frames](../evidence/motion.md#rendered).
 11. **Composer menu and Drawer — complete.** A Command is a slash command typed into the
     conversation it addresses ([CMC-1–CMC-3](../specs/composer-menu.md)); the Drawer, pulled by
     `Ctrl-P` ([DRW-1–DRW-4](../specs/drawer.md)), holds what outlives a Session. One

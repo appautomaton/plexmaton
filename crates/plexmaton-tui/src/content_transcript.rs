@@ -485,12 +485,16 @@ const fn text_treatment(item: &TranscriptItemView) -> (Option<(&'static str, Rol
 ///
 /// An empty panel, a panel waiting for its first event, and a panel whose agent has gone all look
 /// the same and mean different things, so none of them is left to be inferred from blank rows.
+/// The user's own empty conversation says nothing: launch greets it, the composer beneath already
+/// says where to begin, and the user chose blank on 2026-09-23 over a sentence about transcript
+/// items.
 pub(crate) fn conversation_placeholder(
     palette: &Palette,
     surface: SurfaceId,
     has_agent: bool,
 ) -> Vec<ratatui::text::Line<'static>> {
     let message = match (surface, has_agent) {
+        (SurfaceId::Transcript, true) => return Vec::new(),
         (_, true) => "Agent is active; no transcript item has started yet.",
         (SurfaceId::Inspector, false) => "That agent is no longer in the roster.",
         (_, false) => "Waiting for the first semantic event…",

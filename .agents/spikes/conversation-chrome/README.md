@@ -3,13 +3,13 @@
 | Field | Value |
 | --- | --- |
 | Question | How the working agent, the user's turn and the mark should look, decided from rendered candidates |
-| Feeds | [Phase 04](../../phases/phase-04-product-polish.md) stage 34, complete, and the [stage 10](../../plans/phase-04-stage-10-branding.md) plan |
+| Feeds | [Phase 04](../../phases/phase-04-product-polish.md) stages 34 and 10, both complete |
 | Method | HTML mockups in the palette, opened for the user; two kitty scripts for what a browser cannot show |
 
 Every decision below was made by the user on a rendered frame, 2026-09-21 and 2026-09-22. The
 generators are in [`mockups/`](./mockups/); each writes one HTML page to
 `plexmaton-conversation-chrome/` under the system temporary directory, outside this corpus, and
-`spin.py`, `mark-lively.py`, `logo_term.py` and `cellsize.py` run in a terminal. Regenerate rather than trusting a description of them.
+`spin.py`, `mark-lively.py`, `mark-braille.py`, `mark-braille-frame.py`, `logo_term.py` and `cellsize.py` run in a terminal. Regenerate rather than trusting a description of them.
 
 ## What the user chose
 
@@ -18,9 +18,10 @@ generators are in [`mockups/`](./mockups/); each writes one HTML page to
 | Activity line composition | mark, label, muted `· 32s · high effort`, `· quiet for 31s` once nothing has arrived; no token count | a red stall tell; estimated tokens |
 | Activity mark | H: a dot grows into a circle, turns into a rounded square and a square, spins into a diamond and shrinks away through a smaller one, lingering on whole shapes, 1.6 s a cycle; chosen 2026-09-23 in kitty (`mark-lively.py`) after the user found N2 rigid and wanted it to grow from a point | N2, the circle, rounded square and square outline then filled, chosen 2026-09-22 and later found rigid; one size changing shape, and even steps retracing their path, likewise; a slice-by-slice sweep, which reads as progress; C2′ and C2″, which shook because mixed-size Unicode shapes centre differently; filled squares; braille; quarter circles; Claude Code's star |
 | User message | band of lifted ground with a blue `›`, continuation indented | the accent bar; a bare prefix; a hairline bar; a band alone |
-| Mark placement | centred in the empty conversation, name beneath, gone with the first message | a header or drawer slot, not yet asked for |
-| Mark motion | K4 as the base: frame breathes between weights and drifts between palette slots; centre morphs circle, ring, rounded square, square, solid and outline | K1 to K3 as they stood |
-| Mark glyphs | the Material Design family the Nerd Font carries, one cell each, drawn together so they centre together | Unicode geometric shapes from mixed blocks, which jump between fallback fonts |
+| Mark placement | a greeting: at launch onto an empty conversation it plays once at the centre, name beneath, and leaves after about 2.5 s: frame fades in for 0.25 s, the F3 cycle runs in 2 s with one 0.8 s sheen, frame and name fade out in 0.3 s; chosen 2026-09-23 after the user asked for it to be less aggressive and quicker | staying and moving until the first message, too insistent; 3.7 s, too slow; a header or drawer slot, not yet asked for |
+| Mark drawing | braille, the way Grok draws its logo: two by four dots a cell, a rounded-square frame around a round centre as one small bitmap, square once corrected for the terminal's cell; chosen 2026-09-23 (`mark-braille.py`) | box drawing at three weights around a one-cell Nerd Font centre, which the user found too coarse to look good at any size |
+| Mark motion | F3: the centre grows from a dot into a circle, becomes a rounded square and a square, turns into a diamond while the frame turns with it, and shrinks away, 3.2 s a cycle; Grok's sheen sweeps it every 4 s; chosen 2026-09-23 (`mark-braille-frame.py`) after the user asked for the outside to move as well as the inside | the frame breathing and drifting through palette slots (F1); frame and centre in counterpoint (F2); all of it at once (F4); K4's shape-only morph, rigid |
+| Activity mark glyphs | the Material Design family the Nerd Font carries, one cell each, drawn together so they centre together | Unicode geometric shapes from mixed blocks, which jump between fallback fonts |
 
 The activity indicator and the mark are two things: the row has one cell, the empty conversation
 has a block. They share the clock and the glyph family, not the geometry.
@@ -60,3 +61,4 @@ the family's, so they cannot join its cycle; `▢`, `◼` and `⬤` are not in t
 | Stall | glyph and verb fade to red after 3 s without tokens | | phase timer never resets on payload churn |
 | User turn | band, subtle `❯`, no hanging indent, text colour unchanged | band blended 12 % toward white from the real terminal background, dim `›`, two-space indent, never truncated | band, accent `❯`, indent, folds past three lines |
 | Clock | one shared interval, halved when the window is blurred, off when scrolled away | | demand-driven; idle parks with no wakeups; every frame unit-tested to one column |
+| Logo | | | braille art at seven or five rows by window height, none below; a sheen sweeps bottom-left to top-right in 1.3 s of every 4, over a slow pulse, redrawn at 12 fps |

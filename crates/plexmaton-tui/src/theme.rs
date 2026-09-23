@@ -11,6 +11,7 @@ use ratatui::style::{Color, Modifier, Style};
 
 pub(crate) mod code;
 mod effort;
+mod mark;
 mod markdown;
 #[cfg(test)]
 mod tests;
@@ -284,6 +285,7 @@ pub struct Palette {
     selection: Style,
     chosen: Style,
     user_message: Style,
+    mark: mark::MarkColours,
 }
 
 impl Palette {
@@ -330,6 +332,7 @@ impl Palette {
                 .bg(slots.ground)
                 .add_modifier(Modifier::BOLD),
             user_message: Style::new().bg(lifted(slots.ground, slots.line)),
+            mark: mark::MarkColours::from_slots(&slots),
         }
     }
 
@@ -362,6 +365,7 @@ impl Palette {
             selection: style(Role::Selection),
             chosen: style(Role::Chosen),
             user_message: style(Role::UserMessage),
+            mark: mark::MarkColours::from_slots(&Slots::designed()),
         }
     }
 

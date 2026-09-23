@@ -30,6 +30,11 @@ impl Workspace {
             let _outcome = self.state.apply(envelope);
         }
         self.state.observe_activity(now, heard);
+        // The first entry ends the greeting for good, so a later empty conversation is not greeted.
+        if self.greeting.is_some() && !self.state.primary_is_empty() {
+            self.greeting = None;
+            self.state.set_greeting(None);
+        }
         if self.state.revision() != before {
             self.validate_text_selection();
             self.reconcile_copy();

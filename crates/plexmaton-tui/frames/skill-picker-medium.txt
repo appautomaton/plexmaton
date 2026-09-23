@@ -1,5 +1,5 @@
 ┌ Plexmaton ──────────────────────────────────────────────────────────────────────────────────┐
-│Agent is active; no transcript item has started yet.                                         │
+│                                                                                             │
 │                                                                                             │
 │                                                                                             │
 │                                                                                             │
