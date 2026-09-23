@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Question | How the working agent, the user's turn and the mark should look, decided from rendered candidates |
-| Feeds | [stage 34](../../plans/phase-04-stage-34-conversation-chrome.md) and [stage 10](../../plans/phase-04-stage-10-branding.md) plans |
+| Feeds | [Phase 04](../../phases/phase-04-product-polish.md) stage 34, complete, and the [stage 10](../../plans/phase-04-stage-10-branding.md) plan |
 | Method | HTML mockups in the palette, opened for the user; two kitty scripts for what a browser cannot show |
 
 Every decision below was made by the user on a rendered frame, 2026-09-21 and 2026-09-22. The

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15, 17–27, 29 and 31–33 complete; stages 16 and 28 await the user's terminal test; stage 30 automatic-compaction visibility unstarted; stage 34 conversation chrome in progress; stage 10 branding planned and unstarted |
+| Status | Active; stages 1–9, 11–15, 17–27, 29 and 31–34 complete; stages 16 and 28 await the user's terminal test; stage 30 automatic-compaction visibility unstarted; stage 10 branding planned and unstarted |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership; Phase 02 journal/accounting/budget projections; Phase 03 durable collaboration, owned child scheduling, Handoff/Stop, passive recovery and canonical Attention |
@@ -392,13 +392,16 @@ Rejected: treating JSONL round trips as independent export/import acceptance.
     whole turn at once. Where hosted-tool spend belongs in the cost surface stays open in
     [ui-ux](../ui-ux.md) §open questions.
 
-34. **Conversation chrome — in progress.** The user's turn sits on a band of lifted ground behind a
-    blue `›` instead of an accent-coloured bar, the composer's rule names the model rather than
-    repeating the agent, and the activity line moves while the agent works:
-    the mark's core, the label, elapsed time, effort, and how long the route has been quiet. Both
-    were chosen from rendered candidates beside Claude Code, Codex and Grok, and both change
-    presentation only; motion runs on the workspace's one clock ([motion](../specs/motion.md)). The
-    [stage plan](../plans/phase-04-stage-34-conversation-chrome.md) owns the order.
+34. **Conversation chrome — complete.** The user's turn sits on a band behind a blue `›`, and the
+    composer's rule names the model and its effort (COM-4). The activity line moves on the one
+    [motion](../specs/motion.md) clock and reads the turn's time without the user's waits, the
+    effort, and the primary's quiet; idle, it gives its rows back (COM-5). Chosen from rendered
+    candidates in the [spike](../spikes/conversation-chrome/README.md); the user reviewed the band at
+    [120](../../crates/plexmaton-tui/frames/user-message-120.svg),
+    [88](../../crates/plexmaton-tui/frames/user-message-88.svg),
+    [60](../../crates/plexmaton-tui/frames/user-message-60.svg) and
+    [hovered](../../crates/plexmaton-tui/frames/user-message-120-hover.svg), and the activity line in
+    their own terminal.
 
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is
 ready; this phase opening does not claim those capabilities have started.

@@ -34,8 +34,8 @@ square. It is presentation and nothing else reads it.
 ## Order and why
 
 Static geometry before motion, as the stage has always said. Placement before motion so the frames
-that motion must not disturb exist first. The motion owner is stage 34's, so this stage waits for it
-rather than growing a second clock.
+that motion must not disturb exist first. The mark moves on the motion owner stage 34 landed rather
+than growing a second clock.
 
 ## Deliberately not in this plan
 
