@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 mod conversation_tree;
+mod event_owner;
 mod permissions;
 mod reasoning;
 mod server_tool;
@@ -45,60 +46,6 @@ pub use transcript::{
     CommandInvocation, ToolCallStatus, ToolDetail, ToolPresentation, TranscriptRole,
 };
 pub use usage::{TokenCounts, TokenUsage};
-
-impl ConversationEvent {
-    /// The conversation whose projection holds this fact.
-    #[must_use]
-    pub fn agent(&self) -> &AgentId {
-        match self {
-            Self::AgentCreated { agent_id, .. }
-            | Self::AgentStatusChanged { agent_id, .. }
-            | Self::TurnUsageUpdated { agent_id, .. }
-            | Self::TranscriptItemStarted { agent_id, .. }
-            | Self::TranscriptDelta { agent_id, .. }
-            | Self::TranscriptItemFinalized { agent_id, .. }
-            | Self::ToolCallChanged { agent_id, .. }
-            | Self::ServerToolStarted { agent_id, .. }
-            | Self::ServerToolCalled { agent_id, .. }
-            | Self::AttentionRequested { agent_id, .. }
-            | Self::AttentionResolved { agent_id, .. }
-            | Self::TaskAssigned { agent_id, .. }
-            | Self::MailDelivered { agent_id, .. }
-            | Self::HandoffCompleted { agent_id, .. }
-            | Self::ArtifactAnnounced { agent_id, .. }
-            | Self::RuntimeWarning { agent_id, .. }
-            | Self::RuntimeError { agent_id, .. } => agent_id,
-        }
-    }
-
-    /// The conversation whose projection holds this fact, so a reader can re-address it.
-    ///
-    /// A delegated child numbers its own conversation and names itself by its own agent identity.
-    /// A root that shows what that child did is showing it inside the root's projection, under the
-    /// name the roster gave it, so every forwarded fact is re-addressed here rather than at each
-    /// call site — and a new variant is a compile error until it says which conversation it is in.
-    pub fn agent_mut(&mut self) -> &mut AgentId {
-        match self {
-            Self::AgentCreated { agent_id, .. }
-            | Self::AgentStatusChanged { agent_id, .. }
-            | Self::TurnUsageUpdated { agent_id, .. }
-            | Self::TranscriptItemStarted { agent_id, .. }
-            | Self::TranscriptDelta { agent_id, .. }
-            | Self::TranscriptItemFinalized { agent_id, .. }
-            | Self::ToolCallChanged { agent_id, .. }
-            | Self::ServerToolStarted { agent_id, .. }
-            | Self::ServerToolCalled { agent_id, .. }
-            | Self::AttentionRequested { agent_id, .. }
-            | Self::AttentionResolved { agent_id, .. }
-            | Self::TaskAssigned { agent_id, .. }
-            | Self::MailDelivered { agent_id, .. }
-            | Self::HandoffCompleted { agent_id, .. }
-            | Self::ArtifactAnnounced { agent_id, .. }
-            | Self::RuntimeWarning { agent_id, .. }
-            | Self::RuntimeError { agent_id, .. } => agent_id,
-        }
-    }
-}
 
 /// Rejected stable identifier input.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
@@ -509,6 +456,31 @@ pub enum ConversationEvent {
         label: String,
         /// Stable reference to the content. Copy actions return this, not the display label.
         pointer: String,
+    },
+    /// A compaction checkpoint was acknowledged: the conversation before it now reaches the model
+    /// as a summary (CPL-4).
+    ///
+    /// Live and replayed alike, whoever asked for it, at the position the checkpoint holds, so a
+    /// reopened conversation shows it where it happened. It carries no text: what it says is the
+    /// workspace's.
+    ContextCompacted {
+        /// Conversation whose context was compacted.
+        agent_id: AgentId,
+        /// Transcript position of the checkpoint, derived from its journal record.
+        item_id: TranscriptItemId,
+    },
+    /// A summarizer began compacting this conversation's context (CPL-6), whoever asked for it.
+    ///
+    /// Transient, like the work it names: it is emitted live and never projected from a journal,
+    /// so a reopened conversation is never left compacting.
+    CompactionStarted {
+        /// Conversation whose context is being compacted.
+        agent_id: AgentId,
+    },
+    /// That summarizer stopped, whether or not it produced a checkpoint.
+    CompactionEnded {
+        /// Conversation whose compaction ended.
+        agent_id: AgentId,
     },
     /// The producer reported a condition the user should see but that blocks nothing.
     RuntimeWarning {

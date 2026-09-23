@@ -373,12 +373,14 @@ impl ConversationJournal {
         ordered.sort_by_key(|(sequence, _)| *sequence);
         let mut finished_turns = BTreeSet::new();
         let mut entry_event_offsets = BTreeMap::new();
-        for (_, fact) in ordered {
+        for (sequence, fact) in ordered {
             match fact {
                 SelectedFact::Entry(entry) => {
                     entry_event_offsets.insert(entry.id.clone(), projector.events.len());
-                    if let JournalEntryPayload::CompactionCheckpoint { checkpoint, .. } =
-                        &entry.payload
+                    if let JournalEntryPayload::CompactionCheckpoint {
+                        agent_id,
+                        checkpoint,
+                    } = &entry.payload
                     {
                         projector.activation_owner = None;
                         projector.finish_batch(false)?;
@@ -387,6 +389,11 @@ impl ConversationJournal {
                             .map_err(JournalProjectionError::Journal)?;
                         projector.context_epoch = ContextEpoch::Checkpoint(entry.id.clone());
                         projector.base_atom_count = projector.atoms.len();
+                        // Where the live commit put its row, under the identity it gave it (CPL-4).
+                        projector.emit(ConversationEvent::ContextCompacted {
+                            agent_id: agent_id.clone(),
+                            item_id: crate::record::journal_item_id(agent_id, sequence.get()),
+                        })?;
                     } else {
                         project_entry(&mut projector, entry)?;
                     }

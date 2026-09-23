@@ -376,6 +376,132 @@ async fn soft_pre_turn_compaction_uses_a_distinct_owner_and_refreshes_after_chec
     assert!(authorization < terminal && terminal < checkpoint);
 }
 
+/// Drives the runtime until it has no owned work, keeping every live event in order.
+async fn run_to_idle(runtime: &mut LiveRuntime) -> Vec<ConversationEventEnvelope> {
+    let mut live = Vec::new();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while runtime.has_active_work() {
+            if let RuntimeUpdate::Event(event) = runtime
+                .next_update()
+                .await
+                .unwrap_or_else(|error| panic!("runtime update: {error}"))
+            {
+                live.push(event);
+            }
+        }
+        while let Some(event) = runtime.try_next_event() {
+            live.push(event);
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("the runtime did not settle"));
+    live
+}
+
+fn count(events: &[ConversationEventEnvelope], wanted: fn(&ConversationEvent) -> bool) -> usize {
+    events
+        .iter()
+        .filter(|envelope| wanted(&envelope.event))
+        .count()
+}
+
+/// Where each event of a stream sits: the user's message, the checkpoint's row and the answer.
+fn landmarks(events: &[ConversationEventEnvelope]) -> (usize, usize, usize) {
+    let position = |wanted: &dyn Fn(&ConversationEvent) -> bool| {
+        events
+            .iter()
+            .rposition(|envelope| wanted(&envelope.event))
+            .unwrap_or_else(|| panic!("landmark missing from {events:#?}"))
+    };
+    let message = position(
+        &|event| matches!(event, ConversationEvent::TranscriptDelta { text, .. } if text == "continue"),
+    );
+    let row = position(&|event| matches!(event, ConversationEvent::ContextCompacted { .. }));
+    let answer = position(
+        &|event| matches!(event, ConversationEvent::TranscriptDelta { text, .. } if text == "the answer"),
+    );
+    (message, row, answer)
+}
+
+/// CPL-4/CPL-7: a checkpoint the runtime takes on its own shows itself where it landed, between the
+/// message that prompted it and that message's answer, and a reopened journal puts the same row in
+/// the same place under the same identity.
+#[tokio::test]
+async fn an_automatic_checkpoint_is_a_row_between_the_message_and_its_answer() {
+    let driver = CompactionDriver::new(
+        [
+            Script::Events(vec![
+                text_delta(&large_answer()),
+                ModelEvent::Stopped(StopReason::EndOfTurn),
+            ]),
+            Script::Events(vec![
+                text_delta("the answer"),
+                ModelEvent::Stopped(StopReason::EndOfTurn),
+            ]),
+        ],
+        [SummaryScript::Complete("compact facts".repeat(8))],
+    );
+    let mut runtime = runtime(driver.clone());
+    seed_large_history(&mut runtime).await;
+    driver.enable();
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "continue".to_owned(),
+            },
+        )
+        .await
+        .unwrap_or_else(|error| panic!("pressured submit: {error}"));
+
+    let live = run_to_idle(&mut runtime).await;
+    assert_eq!(
+        driver.summary_call_count(),
+        1,
+        "the runtime compacted on its own"
+    );
+
+    let (live_message, live_row, live_answer) = landmarks(&live);
+    assert!(
+        live_message < live_row && live_row < live_answer,
+        "live order: {live_message}, {live_row}, {live_answer}"
+    );
+    let replayed = runtime
+        .agent
+        .journal()
+        .project(runtime.agent.selected_head())
+        .expect("reopened projection")
+        .events()
+        .to_vec();
+    let (message, replayed_row, answer) = landmarks(&replayed);
+    assert!(message < replayed_row && replayed_row < answer);
+    assert_eq!(
+        live[live_row].event, replayed[replayed_row].event,
+        "one row, one identity"
+    );
+    let rows =
+        |event: &ConversationEvent| matches!(event, ConversationEvent::ContextCompacted { .. });
+    assert_eq!((count(&live, rows), count(&replayed, rows)), (1, 1));
+
+    // CPL-6: the summarizer says it is running, live only, and stops before its row appears.
+    let started =
+        |event: &ConversationEvent| matches!(event, ConversationEvent::CompactionStarted { .. });
+    let ended =
+        |event: &ConversationEvent| matches!(event, ConversationEvent::CompactionEnded { .. });
+    let at = |wanted: fn(&ConversationEvent) -> bool| {
+        live.iter()
+            .position(|envelope| wanted(&envelope.event))
+            .unwrap_or_else(|| panic!("missing from {live:#?}"))
+    };
+    assert!(live_message < at(started) && at(started) < at(ended) && at(ended) < live_row);
+    assert_eq!((count(&live, started), count(&live, ended)), (1, 1));
+    assert_eq!(
+        (count(&replayed, started), count(&replayed, ended)),
+        (0, 0),
+        "a reopened conversation is never left compacting"
+    );
+}
+
 /// CPL-7: one empty-output typed context error can compact and retry the same semantic step; the
 /// second error terminates normally instead of opening an unbounded recovery loop.
 #[tokio::test]
@@ -481,13 +607,28 @@ async fn non_context_summary_failure_does_not_retry() {
         )
         .await
         .expect("pressured submit");
-    finish_compaction_runtime(&mut runtime).await;
+    let live = run_to_idle(&mut runtime).await;
 
     assert_eq!(driver.summary_call_count(), 1);
     assert_eq!(
         driver.agent_calls().await.len(),
         2,
         "soft fallback runs once"
+    );
+    // A failed summarizer still ends, so nothing is left reading `Compacting…`, and leaves no row.
+    let started =
+        |event: &ConversationEvent| matches!(event, ConversationEvent::CompactionStarted { .. });
+    let ended =
+        |event: &ConversationEvent| matches!(event, ConversationEvent::CompactionEnded { .. });
+    let rows =
+        |event: &ConversationEvent| matches!(event, ConversationEvent::ContextCompacted { .. });
+    assert_eq!(
+        (
+            count(&live, started),
+            count(&live, ended),
+            count(&live, rows)
+        ),
+        (1, 1, 0)
     );
 }
 

@@ -313,12 +313,13 @@ async fn run_command(
             } else {
                 plexmaton_runtime::Retention::Honoured
             };
-            let note = match runtime
+            let refusal = match runtime
                 .request_compaction(run.target.agent.clone(), retention)
                 .await
                 .context("request compaction")?
             {
-                CompactionRequest::Started { .. } => CompactionNote::Started,
+                // The summarizer's own start event puts `Compacting…` on the activity line.
+                CompactionRequest::Started { .. } => return Ok(()),
                 CompactionRequest::Refused(refusal) => CompactionNote::Refused(match refusal {
                     Refusal::TurnActive => CompactRefusal::TurnActive,
                     Refusal::ApprovalPending => CompactRefusal::ApprovalPending,
@@ -331,7 +332,7 @@ async fn run_command(
                     Refusal::SourceUnavailable => CompactRefusal::SourceUnavailable,
                 }),
             };
-            workspace.report_compaction(&run.target.agent, note);
+            workspace.report_compaction(&run.target.agent, refusal);
         }
     }
     Ok(())

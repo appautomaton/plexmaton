@@ -294,6 +294,10 @@ impl Record {
         };
         self.journal.apply(record.clone())?;
         reaction.records.push(record);
+        let started = ConversationEvent::CompactionStarted {
+            agent_id: self.agent_id.clone(),
+        };
+        self.emit(reaction, started);
         Ok(())
     }
 
@@ -389,6 +393,11 @@ impl Record {
         };
         self.journal.apply(record.clone())?;
         reaction.records.push(record);
+        // Every ending passes here, published, failed, cancelled or timed out.
+        let ended = ConversationEvent::CompactionEnded {
+            agent_id: self.agent_id.clone(),
+        };
+        self.emit(reaction, ended);
         Ok(())
     }
 
@@ -421,6 +430,12 @@ impl Record {
         };
         self.journal.apply(record.clone())?;
         reaction.records.push(record);
+        // The row a reopened conversation shows here too, under the same identity (CPL-4).
+        let event = ConversationEvent::ContextCompacted {
+            agent_id: self.agent_id.clone(),
+            item_id: journal_item_id(&self.agent_id, ordinal),
+        };
+        self.emit(reaction, event);
         Ok(())
     }
 
@@ -438,9 +453,7 @@ impl Record {
 
     /// Transcript identity paired with the journal record that will be appended next.
     pub(crate) fn next_item_id(&self) -> TranscriptItemId {
-        let ordinal = self.journal.next_sequence().get();
-        TranscriptItemId::new(format!("{}-item-j{ordinal}", self.agent_id))
-            .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"))
+        journal_item_id(&self.agent_id, self.journal.next_sequence().get())
     }
 
     /// A tool call's model identity also fixes its one transcript position.
@@ -511,6 +524,13 @@ fn owner_turn_id(owner: &RequestAttemptOwner) -> TurnId {
             unreachable!("agent record authorizes only agent-step attempts")
         }
     }
+}
+
+/// The transcript identity paired with the journal record at `ordinal`, so an item a record implies
+/// is named the same when it is emitted live and when a reopened journal is projected.
+pub(crate) fn journal_item_id(agent_id: &AgentId, ordinal: u64) -> TranscriptItemId {
+    TranscriptItemId::new(format!("{agent_id}-item-j{ordinal}"))
+        .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"))
 }
 
 #[cfg(test)]

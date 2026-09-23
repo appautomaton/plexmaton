@@ -8,7 +8,9 @@ use crate::{
     intent::TextIntent,
     test_support::{assert_frame, canonical_runtime, region_text},
 };
-use plexmaton_core::ConversationId;
+use plexmaton_core::{
+    ConversationEvent, ConversationEventEnvelope, ConversationId, EventSequence, TranscriptItemId,
+};
 use ratatui::{
     Terminal,
     backend::TestBackend,
@@ -469,12 +471,27 @@ fn paste_and_unicode_inside_the_token_follow_the_same_rule() {
     );
 }
 
-/// CPL-9: a requested compaction shows on the activity line while it runs and ends with one
-/// note after the last entry; a refusal is one sentence in the same place.
+/// CPL-9: a requested compaction shows on the activity line while its summarizer runs, and when it
+/// publishes the conversation says so once, in its checkpoint's row (CPL-4), with no note of its
+/// own; a refusal is one sentence after the last entry.
 #[test]
-fn a_requested_compaction_shows_on_the_activity_line_and_ends_with_a_note() {
+fn a_requested_compaction_shows_on_the_activity_line_and_leaves_the_saying_to_its_row() {
     let (mut workspace, mut terminal) = setup(95);
-    workspace.report_compaction(&agent(), CompactionNote::Started);
+    let mut next = canonical_runtime()
+        .ready(u64::MAX)
+        .last()
+        .map_or(1, |last| last.sequence.get() + 1);
+    let mut emit = |workspace: &mut Workspace, event| {
+        workspace.emit(vec![ConversationEventEnvelope {
+            sequence: EventSequence::new(next),
+            event,
+        }]);
+        next += 1;
+    };
+    emit(
+        &mut workspace,
+        ConversationEvent::CompactionStarted { agent_id: agent() },
+    );
     draw(&mut workspace, &mut terminal);
     let drawn = conversation(&workspace, &terminal);
     assert!(
@@ -486,10 +503,26 @@ fn a_requested_compaction_shows_on_the_activity_line_and_ends_with_a_note() {
         "{drawn}"
     );
 
+    emit(
+        &mut workspace,
+        ConversationEvent::CompactionEnded { agent_id: agent() },
+    );
+    emit(
+        &mut workspace,
+        ConversationEvent::ContextCompacted {
+            agent_id: agent(),
+            item_id: TranscriptItemId::new("agent-a-item-j900").expect("item"),
+        },
+    );
     workspace.report_compaction(&agent(), CompactionNote::Published);
     draw(&mut workspace, &mut terminal);
     let drawn = conversation(&workspace, &terminal);
-    assert!(drawn.contains("✓ Context compacted."), "{drawn}");
+    assert_eq!(
+        drawn.matches("Context compacted").count(),
+        1,
+        "the row, and no note of its own: {drawn}"
+    );
+    assert!(!drawn.contains('✓'), "{drawn}");
     assert!(!drawn.contains("Compacting…"));
 
     workspace.report_compaction(
@@ -502,7 +535,11 @@ fn a_requested_compaction_shows_on_the_activity_line_and_ends_with_a_note() {
         drawn.contains("Could not compact: the turn is still running."),
         "{drawn}"
     );
-    assert!(!drawn.contains("Context compacted"), "one note at a time");
+    assert_eq!(
+        drawn.matches("Context compacted").count(),
+        1,
+        "the checkpoint's row is history, and a later note leaves it in place: {drawn}"
+    );
 }
 
 /// SPK-2/SPK-3: a refused `/new` is one sentence after the last entry with nothing left to wait

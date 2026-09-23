@@ -50,10 +50,11 @@ impl CompactRefusal {
 }
 
 /// What the composition root reports about a compaction the user asked for (CPL-9).
+///
+/// Whether a summarizer is running is not reported here: its own start and end events say so for
+/// every compaction, requested or automatic.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CompactionNote {
-    /// The runtime owns the summarizer; the activity line says `Compacting…` until it ends.
-    Started,
     Refused(CompactRefusal),
     Published,
     /// The attempt ended without a checkpoint; `reason` is the runtime's own sentence for it.
@@ -66,7 +67,6 @@ pub enum CompactionNote {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConversationNote {
     Restored(ConversationRestoration),
-    Compacted,
     CompactionRefused(CompactRefusal),
     CompactionFailed { reason: String },
     SwitchRefused(super::SwitchRefusal),
@@ -105,16 +105,13 @@ impl ViewState {
     /// Where a requested compaction stands, on the conversation it was asked for (CPL-9).
     pub(crate) fn report_compaction(&mut self, agent: &AgentId, note: CompactionNote) {
         match note {
-            CompactionNote::Started => {
-                self.compacting = Some(agent.clone());
-                self.touch();
-            }
             CompactionNote::Refused(refusal) => {
                 self.report_note(agent, ConversationNote::CompactionRefused(refusal));
             }
+            // The checkpoint's own row says it, where it landed; a note would say it twice.
             CompactionNote::Published => {
                 self.compacting = None;
-                self.report_note(agent, ConversationNote::Compacted);
+                self.touch();
             }
             CompactionNote::Failed { reason } => {
                 self.compacting = None;
@@ -123,7 +120,19 @@ impl ViewState {
         }
     }
 
-    /// Whether the primary conversation's requested compaction is still running.
+    /// A summarizer began or stopped compacting `agent`'s context, whoever asked for it.
+    pub(super) fn set_compacting(&mut self, agent: &AgentId, running: bool) -> bool {
+        let next = running.then(|| agent.clone());
+        // An end only clears the compaction it belongs to.
+        let owned = self.compacting.as_ref() == Some(agent);
+        if self.compacting == next || (!running && !owned) {
+            return false;
+        }
+        self.compacting = next;
+        true
+    }
+
+    /// Whether a summarizer is compacting this conversation's context.
     pub(crate) fn compacting(&self, agent: &AgentId) -> bool {
         self.compacting.as_ref() == Some(agent)
     }

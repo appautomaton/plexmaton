@@ -48,6 +48,9 @@ versioned plan and successful summarizer-attempt identity; that attempt's full o
 durable in the same journal. Source revision, ancestry, cut, output, owner and environment are
 validated before commit; JRN-7 acknowledgement precedes replacement publication or continuation.
 Original entries remain intact; JRN-3 owns the current `plexmaton.session` schema epoch and foreign-epoch refusal.
+The conversation shows each checkpoint as one row where it landed (ui-ux §transcript grammar),
+emitted when it commits and projected from its entry on reopen, under one identity derived from its
+record, so an automatic checkpoint sits mid-turn and a requested one after the last entry.
 
 **CPL-5 — Epochs belong to the selected ancestry.** Projection selects checkpoints only on the
 target path, preserves the full visible history, and reconstructs the same context after reopen or
@@ -62,6 +65,11 @@ and distinct request-attempt identity, without a fabricated model step or durabl
 Bounded text, reasoning and replay output are retained with the terminal audit, including valid
 partial output on failure; only complete, nonempty, bounded text without tool calls can publish a
 checkpoint. Summary tool calls never reach admission or execution; TIM-3 accounts each attempt once.
+Authorizing an attempt tells the conversation a summarizer started, and every terminal, published,
+failed, cancelled or timed out, tells it the summarizer ended, whoever asked for it; both are live
+only and never projected from the journal, so a reopened conversation is never left compacting. They
+take numbers in the live stream alone, which a reopened or rebuilt projection restarts from its own
+last event, so the stream the workspace reads never gaps.
 
 **CPL-7 — Automatic work has one bounded owner.** Pre-turn soft pressure, complete post-tool hard
 pressure and one empty-output typed context-error recovery are routed through the owned runtime.
