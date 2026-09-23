@@ -98,9 +98,10 @@ pub fn render(
             SurfaceId::Agents => Some(agents_panel(state, palette, bounds)),
             // The primary conversation carries its own box, the same as the roster's and the
             // inspected child's: with two conversations on one screen, a bare one reads as
-            // background rather than as a place, and its hue has no edge to say whose it is. Its
-            // last row stays the activity line, carrying the selection note and the attention pill
-            // as the box's footer rather than instead of a border (ui-ux §input).
+            // background rather than as a place, and its hue has no edge to say whose it is. While
+            // there is work or a request it ends in the activity line over a blank row, carrying the
+            // selection note and the attention pill as the box's footer rather than instead of a
+            // border; idle, it ends in its last reply (ui-ux §input).
             SurfaceId::Transcript => {
                 let footer = activity::activity_footer(
                     state,

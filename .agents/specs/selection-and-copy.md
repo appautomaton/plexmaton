@@ -42,7 +42,9 @@ capability/failure labels are not copied. Clipping and source fallback preserve 
 Maps and prepared rows share MD-4's bounded cache; cache hits borrow mapping data, and highlighting
 copies only the rows it paints. Copying reads only the selected entries, not the whole history;
 PRE-4 prepares missing maps through the owned worker rather than reparsing on release. Pending,
-changed-source and failure feedback appears on the selected conversation's activity line, not as a delivery acknowledgement.
+changed-source and failure feedback appears on the selected conversation's activity line, or, for
+the primary while that line's rows are closed, at the status row's right end; never as a delivery
+acknowledgement.
 
 **SEL-3 — One selection, in one surface, for one agent.** A selection carries the surface and the
 agent it indexes. Extending in a different surface replaces it, and a selection whose surface stops
@@ -62,7 +64,9 @@ successful terminal write has no acknowledgement; helper success proves only tha
 accepted the request. Native helper failure is returned without a silent route change. The CLI publishes `✓ Copied` only
 for native acceptance, or `Copy sent` for terminal/tmux send. A two-second receipt overlays the
 bottom-right status cells without layout or focus changes; quit has priority without extending
-its window. New admitted copies withdraw old receipts; cancellation, replacement and delivery
+its window. While the primary's activity line is closed those cells otherwise carry its selection
+note (SEL-2), which a receipt replaces for its two seconds. New admitted copies withdraw old
+receipts; cancellation, replacement and delivery
 failure produce none. The two tmux legs remain independent: a successful terminal send can report
 `Copy sent` even when the helper rejects; this does not claim clipboard acceptance. All helper
 operations bound both stdin writes and exit waits to 500 ms, kill and reap on failure, timeout or

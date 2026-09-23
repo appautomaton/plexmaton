@@ -10,7 +10,7 @@
 ## Outcome
 
 The user's turn is told by its surface rather than by a shout, and a working agent is told by a
-row that moves and says only what is known: how long the step has run, at what effort, and how long
+row that moves and says only what is known: how long the turn has run, at what effort, and how long
 the route has been quiet. Both are presentation. Removing either changes no journal entry, no
 request and no replay.
 
@@ -39,17 +39,19 @@ MOT-1 to MOT-3 live in [motion](../specs/motion.md), promoted when the motion ow
    behaviour. Closed by the effort tests passing unchanged and
    `mot_1_one_deadline_serves_every_mover_and_late_wakes_coalesce`.
 4. **Activity line — implemented.** The row opens with the mark, then the label, then muted
-   readings: elapsed since the current work began, the effort, and after five silent seconds `quiet
-   for`. Elapsed reads `11s`, `2m 11s`, `1h 2m`; a short row drops effort, then quiet, then elapsed.
-   The mark is the Nerd Font's circle, rounded square and square, outline then filled, eight frames
-   at 200 ms, which the user chose in their own terminal over the Unicode cycles that shook. It
-   wears blue, the server-tool colour while a hosted search runs, and stands still in the
-   action-required colour during approval. The readings are presentation: events are dated as they
-   are applied and the motion clock supplies the instant a frame is drawn for. After the user's
-   first look in kitty the row gained a blank row beneath it and gives up its rows when idle with
-   nothing waiting; a selection note never opens them, and rides the status row while they are
-   closed. Closed by refreshed current-work frames, the readings, work-clock and footer-rows tests,
-   the selection drags that no longer move, MOT-2 for the mark, and the activity smokes.
+   readings: elapsed across the turn, stopped while an approval or a question waits on the user, the
+   effort, and after five seconds with nothing from the primary's own route `quiet for`, which a
+   child's stream does not interrupt. Elapsed reads `11s`, `2m 11s`, `1h 2m`; a short row drops
+   effort, then quiet, then elapsed. The mark is the Nerd Font's circle, rounded square and square,
+   outline then filled, eight frames at 200 ms, which the user chose in their own terminal over the
+   Unicode cycles that shook. It wears blue, the server-tool colour while a hosted search runs, and
+   stands still in the action-required colour during approval. The readings are presentation: events
+   are dated as they are applied and the motion clock supplies the instant a frame is drawn for.
+   After the user's first look in kitty the row gained a blank row beneath it and gives up its rows
+   when idle with nothing waiting; a selection note never opens them, and rides the status row while
+   they are closed. Closed by refreshed current-work frames, the readings, turn-count, child-quiet
+   and footer-rows tests, the selection drags that no longer move, MOT-2 for the mark, and the
+   activity smokes.
 5. **Documents.** Evidence tables current; SVG review of the frames attached; this plan deleted;
    the phase row says done.
 

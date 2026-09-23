@@ -159,9 +159,10 @@ other rule about input follows from this one.
   waiting, it takes no rows, so the last reply sits one blank row from the composer; the rows open
   and close only with the conversation's own facts, never with the pointer, and while they are
   closed the selection note rides the status row's right end. While the agent works the row opens
-  with the mark's core moving, then the label, then in muted text how long the current work has run
-  and at what effort, and after five seconds with nothing arriving, how long it has been quiet; a
-  short row drops effort, then quiet, then elapsed. The mark cycles the Nerd Font's circle, rounded
+  with the mark's core moving, then the label, then in muted text how long the turn has run, not
+  counting its waits on the user, and at what effort, and after five seconds with nothing arriving
+  from the agent's own route, how long it has been quiet; a short row drops effort, then quiet, then
+  elapsed. The mark cycles the Nerd Font's circle, rounded
   square and square, outline then filled, and wears blue, the server-tool colour while a
   provider-run search is the work, and stands still in the action-required colour while approval is
   required. Motion runs on the one visible-only clock the effort rail shares
@@ -169,7 +170,9 @@ other rule about input follows from this one.
   visible primary card; otherwise in the activity line. Rejected: duplicate labels on adjacent
   lines; a row kept blank while idle, which left a hole under the last reply; opening the rows for a
   selection note, which lifted the conversation under the reader's drag; a still row, which during a
-  thirty-second silent turn read as a hang; a token count estimated from streamed characters,
+  thirty-second silent turn read as a hang; a count that restarts with each step, which never
+  shows the turn's total; a count that runs through an approval, which reports the user's decision
+  as the next tool's run; a token count estimated from streamed characters,
   because the row claims only what the route reported; turning the row red when the route is quiet,
   because quiet is not failure.
 - **An empty conversation shows the mark.** Before the first message the transcript holds the mark

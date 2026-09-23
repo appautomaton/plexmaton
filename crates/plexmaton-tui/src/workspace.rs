@@ -1416,9 +1416,10 @@ mod tests {
 
         assert_eq!(bounds(&workspace, SurfaceId::Transcript), transcript);
         assert_eq!(bounds(&workspace, SurfaceId::Composer), composer);
+        // Idle closes the activity line's rows, so no row of the conversation is it any longer.
         assert!(
-            !activity(&terminal, &workspace).contains("Thinking"),
-            "idle draws nothing on the activity line"
+            !painted(&terminal, &workspace, SurfaceId::Transcript).contains("Thinking…"),
+            "idle names no work anywhere in the conversation"
         );
 
         conversation.emit(ConversationEvent::AgentStatusChanged {

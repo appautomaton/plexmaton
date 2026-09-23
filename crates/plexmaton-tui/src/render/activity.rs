@@ -36,8 +36,8 @@ pub(crate) fn mark(phase: u16) -> &'static str {
     MARK[usize::from(phase / PHASES_PER_FRAME) % MARK.len()]
 }
 
-/// The conversation's last row: what the agent is doing on the left; what the reader has
-/// selected and what is still waiting on them on the right (ui-ux §input, COM-5, SEL-5, ATT-1).
+/// The activity line: what the agent is doing on the left; what the reader has selected and what
+/// is still waiting on them on the right (ui-ux §input, COM-5, SEL-2, ATT-1).
 ///
 /// Derived from the same facts the composer's divider used to carry, and drawn where the
 /// conversation ends rather than where the user types, so the two never read as one thing.

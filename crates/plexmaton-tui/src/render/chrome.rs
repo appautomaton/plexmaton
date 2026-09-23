@@ -107,9 +107,6 @@ pub(super) fn attention_pill(state: &ViewState, palette: &Palette) -> Option<Lin
     ]))
 }
 
-/// What a surface says about the selection it is holding.
-///
-/// The retained selection is separate from transient transport feedback in the status row (SEL-5).
 /// What the primary conversation's selection note says, without its separator.
 pub(super) fn selection_note(state: &ViewState) -> Option<String> {
     selected_suffix(state, SurfaceId::Transcript)
@@ -117,6 +114,9 @@ pub(super) fn selection_note(state: &ViewState) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// What a surface says about the selection it is holding.
+///
+/// The retained selection is separate from transient transport feedback in the status row (SEL-5).
 pub(super) fn selected_suffix(state: &ViewState, surface: SurfaceId) -> String {
     if let Some(note) = state.copy_note(surface) {
         use crate::state::CopyNote;
@@ -145,9 +145,9 @@ pub(super) fn selected_suffix(state: &ViewState, surface: SurfaceId) -> String {
 ///
 /// The composer's rule below says whom the next message addresses; this says what is being read.
 /// The two are the same name until a child's window is open, which is exactly when telling them
-/// apart matters. The lifecycle and the selection note ride
-/// the activity line at the other end of the same box, and saying them twice in one frame would
-/// make the box noisier than the bare conversation it replaced.
+/// apart matters. The lifecycle and the selection note ride the activity line at the other end of
+/// the same box, or the status row while that line is closed, and saying them twice in one frame
+/// would make the box noisier than the bare conversation it replaced.
 pub(super) fn conversation_title(
     state: &ViewState,
     palette: &Palette,
