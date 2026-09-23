@@ -30,3 +30,9 @@ The user approved disclosure-only tool clicks on 2026-09-06. Reviewed real frame
 [explicit drag](../../crates/plexmaton-tui/frames/tool-text-selection-88.svg).
 Matching `tool-diff-selection-*` frames retain selected diff colors at all three widths;
 reintroducing automatic selection or an assumed bottom border fails the two-surface witness.
+
+## Transcript grammar frames
+
+Every entry category at [wide](../../crates/plexmaton-tui/frames/transcript-grammar-wide.txt),
+[medium](../../crates/plexmaton-tui/frames/transcript-grammar-medium.txt) and [narrow](../../crates/plexmaton-tui/frames/transcript-grammar-narrow.txt),
+including a reasoning entry ending in three newlines, whose newline-only rows are hidden.

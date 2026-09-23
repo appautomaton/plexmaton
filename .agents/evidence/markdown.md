@@ -44,3 +44,11 @@ and grammar crate manifests own dependency metadata. Resolution added six packag
 and `cargo deny check` passed. `cargo tree -d` and feature output confirm one existing engine
 generation; `cargo machete` reports no unused dependencies. Syntect's bundled-syntax path was not selected: it adds bincode, which carries
 [RUSTSEC-2025-0141](https://rustsec.org/advisories/RUSTSEC-2025-0141.html).
+
+## Reviewed frames
+
+The transcript's Markdown at [wide](../../crates/plexmaton-tui/frames/markdown-wide.txt), [medium](../../crates/plexmaton-tui/frames/markdown-medium.txt) and
+[narrow](../../crates/plexmaton-tui/frames/markdown-narrow.txt). MD-5's colours at [120 × 40](../../crates/plexmaton-tui/frames/markdown-style-120.svg),
+[88 × 42](../../crates/plexmaton-tui/frames/markdown-style-88.svg) and [60 × 46](../../crates/plexmaton-tui/frames/markdown-style-60.svg); the user approved the
+88-column sample. The SVGs model a dark terminal's ANSI slots and fonts, not the user's own. Reproduce
+with `cargo run -p plexmaton-tui --example markdown_style_preview -- target/markdown-style`.

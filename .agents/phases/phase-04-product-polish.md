@@ -15,396 +15,149 @@ Visual changes are reviewed against real frames before the contract adopts them.
 
 ## Scope and sequence
 
-1. **Configurable status line — complete.** [STL-1–STL-4](../specs/status-line.md) define the versioned
-   snapshot, owned command, inert styled output and user-approved variable-height footer. The pastel
-   Powerline example includes rainbow path components and omits unavailable statistics. Workspace
-   tests, two independent code reviews and the real PTY status-line smoke passed without model calls.
+Each finished stage says what is true and what it left open; its spec owns the mechanism and its
+evidence file the frames and tests. Git holds how each was validated.
+
+1. **Configurable status line — complete.** [STL-1–STL-4](../specs/status-line.md): a versioned
+   snapshot, an owned command, inert styled output and a user-approved variable-height footer.
 2. **Session interaction — complete.** JRN-4/JRN-7/JRN-8, SEL-7 and
-   [SPK-1–SPK-3](../specs/conversation-picker.md) cover lazy JSONL creation, restoration feedback,
-   message-local retry/edit-retry, hover Copy and the session picker. Offline workspace tests,
-   three-width frames and PTY smoke passed. It consumes Phase 02's journal/context APIs;
-   compaction remains owned there. Text selection and main-agent approval refinements are stage 4;
-   per-turn usage presentation remains a follow-up.
-   New conversation reuses SPK-2's replacement owner and lazy storage.
-3. **Markdown transcript — complete.** [MD-1–MD-4](../specs/markdown.md) provide bounded assistant
-   formatting while preserving journal source and virtualized scrolling. Reviewed
-   [wide](../../crates/plexmaton-tui/frames/markdown-wide.txt),
-   [medium](../../crates/plexmaton-tui/frames/markdown-medium.txt) and
-   [narrow](../../crates/plexmaton-tui/frames/markdown-narrow.txt) frames.
+   [SPK-1–SPK-3](../specs/conversation-picker.md): lazy JSONL creation, restoration feedback,
+   message-local retry and edit-retry, hover Copy and the conversation picker. Per-turn usage
+   presentation remains a follow-up.
+3. **Markdown transcript — complete.** [MD-1–MD-4](../specs/markdown.md): bounded assistant
+   formatting that keeps journal source and virtualized scrolling.
 4. **Text selection and local approvals — complete.** [SEL-1–SEL-7](../specs/selection-and-copy.md)
-   provide cross-entry plain-text drags and auto-copy; the Copy icon retains source. ATT-1/ATT-3
-   keep main approvals in their conversation, including after Esc, and advance pending cards in
-   arrival order. Reviewed selection frames at
-   [wide](../../crates/plexmaton-tui/frames/text-selection-wide.txt),
-   [medium](../../crates/plexmaton-tui/frames/text-selection-medium.txt),
-   [narrow](../../crates/plexmaton-tui/frames/text-selection-narrow.txt), plus the corresponding
-   `native-approval-*` frames. 287 TUI tests, offline workspace tests, Clippy and terminal smoke
-   passed. FR-4 records text-drag timings and the remaining cold-layout budget gap. Manual live
-   model/terminal use remains unverified; no model requests were made by validation.
+   give cross-entry plain-text drags and auto-copy; ATT-1/ATT-3 keep the primary's approvals in its
+   conversation, after Esc too, in arrival order. FR-4 records the remaining cold-layout budget gap.
 5. **Test-quality hardening — complete.** [Testing](../standards/testing.md) and
-   [quality gates](../standards/quality-gates.md)
-   cover gate integrity, readiness-driven smoke, blocking process fixtures, parser/cache witnesses,
-   owned test directories and shared/cropped frame fixtures. A reproducible duplicate-descriptor
-   regression also fixes JRN-4 writer-lock release. Workspace gates, 17 script regressions and
-   offline PTY smokes passed; the runtime suite passed two extra consecutive runs after the fix.
-   Warm debug terminal smoke measured 49.17 s before readiness-based waits and 1.98/1.90 s after;
-   configured-footer smoke passed in 3.38/3.67 s. These local `/usr/bin/time -p` samples are not CI
-   budgets; the old footer baseline failed a stale eager-file assertion and is not a speed comparison.
-6. **Markdown styling — approved and complete.** [MD-5](../specs/markdown.md)
-   defines Markdown-only pastel color/weight choices beside the unchanged status line.
-   User-approved colors are the CLI's Markdown default; terminal chrome and the script are unchanged.
-   All TUI/CLI targets, workspace Clippy and both offline PTY smokes passed.
-   Reviewed real single-agent renderings at [120 × 40](../../crates/plexmaton-tui/frames/markdown-style-120.svg),
-   [88 × 42](../../crates/plexmaton-tui/frames/markdown-style-88.svg) and
-   [60 × 46](../../crates/plexmaton-tui/frames/markdown-style-60.svg), plus an 88 × 20 short viewport;
-   the user opened and approved the 88-column sample. The SVG export models a dark terminal's ANSI
-   slots and fonts, not their exact terminal configuration. Reproduce with
-   `cargo run -p plexmaton-tui --example markdown_style_preview -- target/markdown-style`.
-   Copy fragments, nested styles and cache invalidation are tested. No code syntax highlighter or
-   new dependency was added; a rich-Markdown performance budget remains unmeasured.
-   Single-agent samples do not prescribe an A2A layout. Notification and agent interaction changes
-   are explicitly deferred by the user.
-7. **Responsive native math — approved and complete.** FR-5, MD-4/MD-5 and
-   [PRE-1–PRE-4](../specs/render-preparation.md) deliver coalesced frames, reusable geometry and
-   owned preparation. [MTH-1–MTH-5](../specs/math-layout.md) own terminal output,
-   native conversation math, atomic delimited-source copy, capability fallback and clipping.
-   All 61 reply formulas traverse the real child at three widths. The direct-Kitty CLI check
-   covers real mouse copy, resize, overlays and clean exit; the user approved its live appearance
-   on 2026-09-06. Fifteen actual workspace frames cover native reply, selection, source, tables
-   and clipping at [120](../../crates/plexmaton-tui/frames/math/reply-120.svg),
-   [88](../../crates/plexmaton-tui/frames/math/reply-88.svg) and
-   [60](../../crates/plexmaton-tui/frames/math/reply-60.svg), with matching cases alongside.
-   The user also approved ENT-4's disclosure-only tool click on 2026-09-06; drag/keyboard
-   selection remain explicit. Its three-width evidence lives in
-   [transcript entry](../specs/transcript-entry.md#evidence). Workspace tests/check/Clippy,
-   dependency/document gates, both PTY smokes and the real Kitty fixture passed.
-   Source reveal, tmux sizing, broader font/terminal fidelity and physical-terminal latency remain
-   explicit follow-ups, not a claim of complete KaTeX parity. The consumed stage plan is removed.
-8. **Agent Skills — complete.** [SKL-1–SKL-6](../specs/agent-skills.md) implement project model
-   selection, three skill roots, bounded metadata and resource reads, model activation and durable
-   explicit invocation including edit/retry. The [source comparison](../spikes/agent-skills/README.md)
-   records the design evidence. 840 Rust tests and 17 script regressions pass; formatting,
-   all-target compilation, workspace Clippy, crate graph, file length, citations, document budgets,
-   typos and machete pass. Offline dependency audit passes with the existing hashbrown/syn duplicate
-   warnings. Both offline PTY smokes pass without model requests. Reviewed skill notice frames at
-   [wide](../../crates/plexmaton-tui/frames/skill-diagnostic-wide.txt),
-   [medium](../../crates/plexmaton-tui/frames/skill-diagnostic-medium.txt) and
-   [narrow](../../crates/plexmaton-tui/frames/skill-diagnostic-narrow.txt) widths.
-   CPL-3 owns required skill retention during compaction. Live model behavior and performance remain
-   unverified. JRN-3 preserves readable `2026-09-04` history alongside new `2026-09-05` files.
-
-9. **Composer skill picker — complete.** [SKP-1–SKP-4](../specs/composer-menu.md) put `$` discovery
-   above the primary input, with keyboard/pointer completion and selected-name ownership through
-   input return and edit/retry. Literal variables, currency and prose remain text. 853 Rust tests,
-   17 script regressions, workspace compilation/Clippy, formatting, crate graph, file length,
-   citations, document budgets, typos and machete pass. The revised real PTY smoke exercises `$`,
-   filtering, Enter/Tab completion and Escape without model requests or an empty journal; the
-   footer smoke also passes. Reviewed actual buffer exports at
-   [wide](../spikes/agent-skills/frames/skill-picker-wide.svg),
-   [medium](../spikes/agent-skills/frames/skill-picker-medium.svg), and
-   [narrow](../spikes/agent-skills/frames/skill-picker-narrow.svg) widths. No dependency or journal
-   schema change was needed for the picker; live model behavior remains unverified.
-
-10. **Branding — unstarted.** The mark is a rounded-square frame with a circular centre. In cells
-    the frame is box drawing at three weights and the centre is one glyph from the Material Design
-    set the Nerd Font already supplies; the block is odd on both axes and its width is chosen from
-    the terminal's measured cell so it comes out square, because no fixed size is square in two
-    fonts. It first appears centred in an empty conversation and leaves with the first message. In
-    motion the frame breathes between weights and drifts between palette slots, and the centre
-    morphs through circle, ring, rounded square and square, on the workspace's one motion clock
-    ([motion](../specs/motion.md)). Palette, pure Ratatui drawing and the clock stay separate
-    responsibilities; static previews at three widths precede motion; no script reruns per frame.
-    The [stage plan](../plans/phase-04-stage-10-branding.md) owns the order.
-
-11. **Composer menu and Drawer — complete.** A Command is a slash command only, typed into the
-    conversation it addresses and run from there with a captured target: `/new`, `/resume` over
-    saved conversations, `/compact` and `/permissions` for the Session, under
-    [CMC-1 to CMC-3](../specs/composer-menu.md); SPK-1 to SPK-3 moved with the rows. The Drawer,
-    pulled from the top edge by `Ctrl-P` under [DRW-1 to DRW-4](../specs/drawer.md), holds what
-    outlives a Session: Configuration, and Project grants and configuration trust; `/config` and
-    the three-second palette hint ceased to exist. One `PermissionPanel` serves both places and
-    one `Pressed` slot serves every surface with rows (INV-11). The user set the vocabulary and
-    the Drawer's geometry on 2026-09-06 and, the same day, decided that conversations and Session
-    permissions are typed where the user types, which moved Conversations out of the Drawer after
-    they had landed there. Rejected: settings as slash commands, which put workspace pages in the
-    composer and made its title lie about the addressee; and conversations as a Drawer page, which
-    hid what users type by habit behind a chord. Stages 22 and 23 own model selection and waiting
-    input. Remaining follow-ups: the User rules snapshot, which the permission view does not
-    project, and a loopback run of `/compact` through the executable, unproven in CMC-1.
-
-12. **Streaming continuity — complete.** MD-4, PRE-3/PRE-4, FR-3/FR-4 and MTH-5 cover retained text
-    prefixes, exact painted-source copy, explicit cached refusal identity and bounded capture.
-    ENT-2 tool transitions require current preparation; TR-1 shares feedback measurement and paint.
-    Validation after rebasing onto `2febe5b` passed 1,089 Rust tests, 22 Python tests and all three
-    terminal smokes, with workspace check/Clippy and the repository hook. Actual streaming and tool-transition frames
-    at 120/88/60 columns were inspected in system-temporary storage. The consumed plan is removed.
-    Partial-pipe fixture readiness is sensitive to concurrent process startup: the production
-    deadline can expire before the marker under load; serial fixture runs pass without changing
-    that deadline. Current release timings and saturated physical-terminal streaming remain unmeasured. Stage 14 owns remaining formula-closure reflow
-    reported during live use; retained preparation alone does not settle that behavior.
-
-13. **Chrome diet — complete.** The conversation column has no box: the transcript runs into
-    the composer's top rule and ends with its activity line, which also carries the selection
-    note and the attention pill; the composer sits between two rules that carry only the
-    addressee and the reasoning effort, grows to a third of the terminal and walks a taller
-    draft with `↑`/`↓` and the wheel; menus are a titled rule and rows the composer's top rule
-    closes. Decided by the user on 2026-09-06 from hand-composed frames; the real frames are the
-    regenerated composition fixtures, the `composer-grown-*` and `composer-windowed-*` crops and
-    the Markdown SVGs. The Drawer, the rail and the strips keep their boxes. Rejected: the box,
-    chrome that said nothing; and current work on the composer's rule, which mixed the agent's
-    doing with the user's typing.
-    ENT-1's reasoning-spacing correction preserves source while hiding terminal newline-only
-    rows. Spacing and cross-entry pointer copy regressions failed before their fixes; the two
-    focused tests, grammar-frame witness and affected all-target Clippy pass on the combined
-    stage-24 version. Original-message copy stays exact. Reviewed
-    unchanged [wide](../../crates/plexmaton-tui/frames/transcript-grammar-wide.txt),
-    [medium](../../crates/plexmaton-tui/frames/transcript-grammar-medium.txt) and
-    [narrow](../../crates/plexmaton-tui/frames/transcript-grammar-narrow.txt) frames now exercise a
-    three-newline reasoning suffix. PR 25 includes this correction alongside the status repair;
-    its checks own final-head CI evidence. No live-provider validation is claimed for this fix.
-
-14. **Math LaTeX support — complete.** The user’s logits/softmax examples exercise accents,
-    Chinese text and boxed mixed-language formulas. MTH-1–MTH-4 cover engine admission, real
-    preparation and three-width projection of the four exact formulas. MD-3 keeps unfinished
-    native math compact; its four token-stream collapses, up to seven rows, become zero in the
-    exact fixture. After rebasing onto `58c3f66`, 1,117 Rust tests passed with serial scheduling,
-    alongside workspace compilation/Clippy, 22 Python checks and three offline terminal smokes.
-    Six MTH frames were regenerated and inspected with the current conversation/composer layout.
-    Pixel-level streaming flicker remains unverified.
-
-15. **Frozen Markdown prefix — complete.** MD-4 and PRE-1 reuse completed blocks through the
-    owned worker while retaining a full parser pass. The formula-work witness prepares one formula
-    instead of two; 72 suffix/width cases retain canonical rows and copy maps. Malformed hints and
-    capacity pressure fall back without losing admissible source. Validation passed 1,117 workspace
-    tests, compilation, Clippy and corpus gates. Seven paced Kitty deltas,
-    250 ms apart, preserve formula copy, resize, Drawer interaction and clean exit at three widths.
-    Reviewed math frames at [120](../../crates/plexmaton-tui/frames/math/logits-120.svg),
-    [88](../../crates/plexmaton-tui/frames/math/logits-88.svg) and
-    [60](../../crates/plexmaton-tui/frames/math/logits-60.svg), with pending frames alongside,
-    were regenerated and inspected against `58c3f66`. TR-4 still moves bottom-aligned content as rows grow;
-    this preparation optimization does not establish pixel-level flicker elimination.
-
-16. **Reasoning effort — in progress.** The [stage plan](../plans/phase-04-stage-16-reasoning-effort.md)
-    owns per-model allowed levels and the responsive RGB spectrum requested on 2026-09-06.
-    [EFF-1–EFF-5](../specs/reasoning-effort.md) implement the live selector, idle driver replacement,
-    shared RGB composer/selector colors and bounded four-shape max animation. Focused local checks
-    and the user's terminal test close the stage; no further standalone previews are planned.
-
-17. **Math projection — complete.** MTH-1–MTH-5 and MD-1–MD-4 cover joined short radicals,
-    the exact multiline log-sum-exp loss and engine-owned compound root indices. Nested numerator
-    scripts retain their ownership; script roots do not use full-size large glyphs. Local validation
-    on `78c6e9c` plus this branch's changes passed 23 math tests, 389 TUI tests and three real-child
-    native-reply tests. Math/TUI/CLI all-target Clippy, formatting, citations, frame references,
-    file length and diff whitespace checks passed. The [MTH review evidence](../evidence/math-layout.md#rendered-and-terminal-evidence) records
-    inspected 120/88/60-column formula and index frames. Tall/script roots remain coarse;
-    physical-terminal pixel fidelity and CI on this branch remain unverified.
-
-18. **Approval inspection — complete.** [APD-1–APD-3](../specs/approval-inspection.md) cover exact
-    command inspection/copy and return to the pending approval. INV-2/INV-3/INV-11 and PER-5/PER-10
-    cover hover, numbered choices, painted-frame confirmation and stale/captured input guards.
-    The user approved the single-heading layout; six linked wide/medium/narrow frames were inspected.
-    On `2661aef` plus these changes, 629 unit tests and one doctest across core, agent, command and TUI
-    passed, along with affected all-target Clippy and both permission and terminal PTY smokes.
-    Static corpus, formatting and dependency-direction checks passed. No CI or live model run was
-    performed for this uncommitted branch.
-
-19. **Unified interaction — complete.** INV-3, DRW-3, COM-3 and SEL-5 cover shared focused-menu
-    hover/arrow choice, guarded Drawer retraction, conversation-only newline chords and transient
-    transport receipts. The user approved the rendered proposal. Actual wide/medium/narrow
-    [Drawer controls](../evidence/drawer.md#rendered-controls),
-    [copy feedback and multiline drafts](../evidence/selection-and-copy.md#rendered-feedback), and
-    APD approval frames were inspected. Local validation on `daee70c` plus this work passed
-    409 TUI, 95 CLI executable, 7 CLI library and 23 measurement tests; the final Drawer grammar
-    additionally passed 22 router tests. TUI/CLI all-target Clippy, 37 Python fixture tests,
-    formatting, citations, frame references, file length and diff checks passed. Terminal PTY
-    verified raw Ctrl-J and Copy sent; permission and status-line PTYs passed with isolated
-    loopback fixtures. Terra-max's read-only review has no remaining blockers. CI and live
-    desktop clipboard acceptance were not exercised locally.
-
-20. **Drawer handle styling — complete.** DRW-3 uses the user-approved static bottom-center
-    `︽` handle and lower outline within the existing border row. Its painted and hit regions share
-    one geometry; content height, focus and cancellation behavior are preserved. Local focused
-    Drawer and frame tests, TUI all-target Clippy and the revised corner/hover witness passed on
-    `1393bcb` plus this change. Six [rendered controls](../evidence/drawer.md#rendered-controls) were
-    inspected at 120/88/60 columns. Full workspace and terminal verification runs in PR CI;
-    no new Kitty windows were opened for this styling change. The corner regression
-    witness retains both side glyphs and forbids underlines on them in rest and hover states.
-
+   [quality gates](../standards/quality-gates.md) own gate integrity, readiness-driven smokes,
+   blocking process fixtures and owned test directories.
+6. **Markdown styling — complete.** [MD-5](../specs/markdown.md): the pastel Markdown colours the
+   user approved, beside an unchanged status line. A rich-Markdown performance budget remains
+   unmeasured.
+7. **Responsive native math — complete.** FR-5, MD-4/MD-5, [PRE-1–PRE-4](../specs/render-preparation.md)
+   and [MTH-1–MTH-5](../specs/math-layout.md): coalesced frames, owned preparation, native
+   conversation math with atomic source copy, capability fallback and clipping; the user approved
+   its live appearance and ENT-4's disclosure-only tool click on 2026-09-06. Source reveal, tmux
+   sizing, broader font and terminal fidelity, and physical-terminal latency remain follow-ups; this
+   is not KaTeX parity.
+8. **Agent Skills — complete.** [SKL-1–SKL-6](../specs/agent-skills.md): three skill roots, bounded
+   metadata and resource reads, model activation, and durable explicit invocation through edit and
+   retry. The [source comparison](../spikes/agent-skills/README.md) is the design evidence; CPL-3
+   retains required skills through compaction.
+9. **Composer skill picker — complete.** [SKP-1–SKP-4](../specs/composer-menu.md): `$` discovery
+   above the primary input with keyboard and pointer completion; literal variables, currency and
+   prose stay text.
+10. **Branding — unstarted.** The mark, a rounded-square frame around a circular centre, drawn in
+    cells at the odd size nearest square for the measured cell, first centred in an empty
+    conversation and moving on the one [motion](../specs/motion.md) clock. The
+    [stage plan](../plans/phase-04-stage-10-branding.md) owns the order.
+11. **Composer menu and Drawer — complete.** A Command is a slash command typed into the
+    conversation it addresses ([CMC-1–CMC-3](../specs/composer-menu.md)); the Drawer, pulled by
+    `Ctrl-P` ([DRW-1–DRW-4](../specs/drawer.md)), holds what outlives a Session. One
+    `PermissionPanel` serves both, and one `Pressed` slot every surface with rows (INV-11). The user
+    set the vocabulary and the Drawer's geometry on 2026-09-06. Open: the User rules snapshot, which
+    the permission view does not project, and a loopback run of `/compact` through the executable,
+    unproven in CMC-1.
+12. **Streaming continuity — complete.** MD-4, PRE-3/PRE-4, FR-3/FR-4, MTH-5, ENT-2 and TR-1:
+    retained text prefixes, exact painted-source copy, cached refusal identity and bounded capture.
+    Release timings and saturated physical-terminal streaming remain unmeasured, and partial-pipe
+    fixture readiness is sensitive to concurrent process startup.
+13. **Chrome diet — complete.** The composer sits between two rules, grows to a third of the
+    terminal and walks a taller draft with `↑`/`↓` and the wheel; a menu is a titled rule closed by
+    the composer's top rule. Decided by the user on 2026-09-06; the conversation's own box returned
+    once two conversations could share the screen. ENT-1 keeps reasoning source while hiding
+    newline-only rows.
+14. **Math LaTeX support — complete.** MTH-1–MTH-4 and MD-3 admit, prepare and project the user's
+    logits and softmax formulas, accents, Chinese text and boxed mixed-language input, keeping
+    unfinished native math compact. Pixel-level streaming flicker remains unverified.
+15. **Frozen Markdown prefix — complete.** MD-4 and PRE-1 reuse completed blocks through the owned
+    worker, keeping a full parser pass and falling back without losing admissible source. TR-4
+    still moves bottom-aligned content as rows grow, so flicker is not shown eliminated.
+16. **Reasoning effort — awaits the user's terminal test.** The
+    [stage plan](../plans/phase-04-stage-16-reasoning-effort.md) owns per-model allowed levels and
+    the responsive spectrum; [EFF-1–EFF-5](../specs/reasoning-effort.md) implement the live
+    selector, idle driver replacement, shared composer and selector colours and the bounded max
+    animation.
+17. **Math projection — complete.** MTH-1–MTH-5 and MD-1–MD-4: joined short radicals, the multiline
+    log-sum-exp loss and engine-owned compound root indices
+    ([review](../evidence/math-layout.md#rendered-and-terminal-evidence)). Tall and script roots
+    remain coarse.
+18. **Approval inspection — complete.** [APD-1–APD-3](../specs/approval-inspection.md): exact
+    command inspection and copy, and return to the pending approval; INV-2/INV-3/INV-11 and
+    PER-5/PER-10 guard hover, numbered choices and stale input. The user approved the layout.
+19. **Unified interaction — complete.** INV-3, DRW-3, COM-3 and SEL-5: one focused-menu hover and
+    arrow choice, guarded Drawer retraction, conversation-only newline chords and transient copy
+    receipts, as the user approved ([Drawer](../evidence/drawer.md#rendered-controls),
+    [copy and drafts](../evidence/selection-and-copy.md#rendered-feedback)).
+20. **Drawer handle styling — complete.** DRW-3's user-approved `︽` handle and lower outline in the
+    border row, painted and hit from one geometry
+    ([rendered controls](../evidence/drawer.md#rendered-controls)).
 21. **Dependency reuse evaluation — complete.** [The experiment](../spikes/rust-dependency-seeding/README.md)
-    did not establish repeatable benefits sufficient to justify a project seeder's maintenance.
-    Ordinary Cargo and private task targets remain the build workflow; no seeding command is maintained.
-
-22. **Model selection — complete.** [MDL-1–MDL-4](../specs/model-selection.md) own bounded
-    configured `/model` rows, atomic idle replacement, replay compatibility, credential isolation
-    and conversation-local overrides. New, resume and restart retain the configured default.
-    Local validation passed the 412-test TUI suite, then five focused model tests after refusal
-    and direct-click identity fixes; the 104-test CLI suite plus its new reset witness; runtime
-    replacement/replay and command environment tests; affected all-target Clippy and corpus gates.
-    The two offline PTY journeys prove blank open/filter/Escape, missing-key refusal, a second
-    endpoint receiving the retained history/guidance, real command/status credential exclusion,
-    and `/new` reset. CI runs the new model journey. Sol-high review found no remaining blockers;
-    its direct-click regression failed before the fix and passed afterward.
-    Six actual [choice/refusal frames](../evidence/model-selection.md#rendered-review) were inspected
-    at 120/88/60 columns. Refusal frames use the requested Failure color; only error text styling
-    changes, with identical text and geometry. Live-provider acceptance is not claimed.
-
-23. **Waiting input — complete.** [IQU-1–IQU-4](../specs/input-queue.md) project the owned
-    queues above the composer. `Alt-↑` restores the newest message and its explicit skill only
-    into an empty primary draft; an occupied draft preserves both messages and advertises the
-    precondition. Completed skill preparation wakes the projection without requiring provider
-    output or another key. The waiting rule follows the activity line's own blank row.
-    The user delegated completion on 2026-09-12; the agent reviewed the existing design and these
-    fixes, and [ui-ux](../ui-ux.md) adopts the resulting input/state grammar. Reviewed frames at
-    [wide](../../crates/plexmaton-tui/frames/input-queue-wide.txt),
-    [medium](../../crates/plexmaton-tui/frames/input-queue-medium.txt) and
-    [narrow](../../crates/plexmaton-tui/frames/input-queue-narrow.txt).
-    The [executable journey](../../scripts/smoke-input-queue.py) uses a paused loopback stream to
-    exercise the actual key, draft guard, exact multiline/numeric-skill return, unchanged journal,
-    continued response and explicit resubmission. On base `54bed6e` plus the completion changes,
-    425 TUI tests, 10 runtime/skill tests, 38 Python tests, affected all-target Clippy and corpus
-    gates passed locally. The executable journey passed at 120/88/60 columns and 60×12; the draft
-    and activity-row regressions failed before their fixes. Sol-high review found no remaining
-    code blockers. PR 24 checks own final-head CI evidence. The consumed plan is removed.
-    No user manual terminal test or live model is claimed. Changing mid-turn Enter into steering
-    and cancelling a skill read already in progress remain separate work.
-
-24. **Independent status projections — complete.** The retained reasoning correction is
-    included in the same testable PR. STL-3 separates prospective context
-    errors, acknowledged accounting/path facts and status-command execution.
-    Resume keeps MDL-4's configured default; MDL-1 and BUD-3 retain codec admission.
-    Local validation on base `fdb3b7e` plus this change: 21 status tests, affected CLI/TUI
-    all-target Clippy and the existing status-line PTY smoke passed. The offline HTTP/journal
-    resume witness proves incompatible model replacement is refused, partial status reaches
-    the real shell at 120/95/60 columns, a compatible model restores available context, and
-    inspection leaves journal bytes unchanged. No live provider or user configuration was used.
-    Reviewed actual Workspace footer cells from the
-    [preview](../../crates/plexmaton-tui/examples/status_projection_preview.rs):
-    [wide](../../crates/plexmaton-tui/frames/status-projection/partial-120.svg),
-    [medium](../../crates/plexmaton-tui/frames/status-projection/partial-95.svg),
-    [narrow](../../crates/plexmaton-tui/frames/status-projection/partial-60.svg).
-    The core regression failed before the change. Independent Sol-high review caught an
-    overly broad arithmetic-error category; explicit budget-error cases and regression coverage
-    now distinguish invalid budgets from overflow; final review found no remaining blockers.
-    Corpus gates passed; advisory README/UI-UX byte-budget warnings already existed at the base.
-    The combined version also passes the reasoning-spacing, copy and grammar-frame witnesses,
-    retains the original primary-checkout files, and has no remaining targeted-review findings.
-    Reviewed same-frame evidence at
-    [wide](../../crates/plexmaton-tui/frames/status-projection/combined-120.svg),
-    [medium](../../crates/plexmaton-tui/frames/status-projection/combined-95.svg) and
-    [narrow](../../crates/plexmaton-tui/frames/status-projection/combined-60.svg).
-    The user confirmed the status repair on `d19d449`; manual confirmation of the combined
-    version remains pending. PR 25 checks own final-head CI evidence. The consumed plan is removed.
-
-25. **Transcript group boundaries — complete.** TR-6 makes group spacing a measured composition
-    rule, shared by height, scrolling and hover boundaries. The user approved one standard gap
-    between tool groups and messages, including reasoning; consecutive compact tools remain tight.
-    Local validation on `30527f7` plus this change passed 432 TUI tests, then the five group
-    witnesses after strengthening the disclosed-tool fixture, and affected all-target Clippy.
-    The missing-boundary and neighbour-append witnesses failed before the implementation.
-    Both-direction separator drags preserve visible copy, every mixed-group window round-trips
-    its anchor, and expanded tool recovery feedback supplies one closing separator. Reviewed
-    actual same-frame tool/reasoning/answer/footer cells at
-    [120](../../crates/plexmaton-tui/frames/status-projection/combined-120.svg),
-    [95](../../crates/plexmaton-tui/frames/status-projection/combined-95.svg) and
-    [60](../../crates/plexmaton-tui/frames/status-projection/combined-60.svg) columns.
-    No semantic source, dependency, journal or provider contract changed. PR 25 owns final-head CI;
-    live-terminal confirmation is not claimed. The consumed plan is removed.
-
-26. **Conversation tree readability — complete.**
-    TRE-2/TRE-6 derive node links, folding and head anchors from the retained message tree,
-    omitting intermediate non-rewindable tools. Explicit vertical edges distinguish sequential
-    ancestry from siblings. `[+]`/`[−]` controls and current-head markers retain Accent;
-    a folded node reports its full retained-descendant count and hidden heads, independently of
-    nested folds. Canonical entries, copy and head positions are unchanged. The
-    user accepted the native interaction on 2026-09-13; the consumed stage plan is removed.
-    On base `e5e8e0b` plus this change, 473 TUI tests and affected all-target Clippy passed.
-    The rebuilt executable passed the six-request loopback rewind/resume journey. Reviewed
-    [native frames](../evidence/conversation-tree.md#native-validation) include expanded/collapsed
-    six-head ancestry at 120/88/60 columns; an isolated copy of the user's JSONL was also rendered
-    at those widths without providers or original-state writes. Targeted review found no actionable
-    issue. The PR owns head-specific CI evidence.
-
-27. **Markdown and syntax theme — complete.** MD-5/MD-6 provide bounded Rust, Python, JSON,
-    JavaScript/TypeScript and Shell syntax roles using the existing palette; Markdown selection
-    preserves colors and emphasis. Physically closed code fences reuse validated streaming
-    checkpoints. Each bundled grammar's query compiles once per process: compiling per render cost
-    12.7 ms for a single Rust fence against 0.025 ms after, while highlighting itself costs 0.04 ms.
-    On base `bf881a8` plus this change, 481 TUI tests, 14 real preparation-process
-    tests, affected all-target Clippy, dependency and corpus gates passed. Restoring the old
-    transcript selection overwrite fails the new workspace witness. Wide/medium/narrow normal
-    and selected [native frames](../evidence/markdown.md#native-syntax-validation), monochrome and
-    short viewport states were inspected; targeted Sol-high review found no actionable issue.
-    The user has not yet reviewed the theme in their terminal; CI awaits publication. No live
-    provider or saved-session state was used. The consumed plan is removed.
-
-28. **A model switch degrades — in progress.** The
+    found no repeatable benefit worth a seeder; ordinary Cargo and private task targets remain.
+22. **Model selection — complete.** [MDL-1–MDL-4](../specs/model-selection.md): configured `/model`
+    rows, atomic idle replacement, replay compatibility, credential isolation and
+    conversation-local overrides; new, resume and restart keep the configured default
+    ([review](../evidence/model-selection.md#rendered-review)).
+23. **Waiting input — complete.** [IQU-1–IQU-4](../specs/input-queue.md) project the owned queues
+    above the composer; `Alt-↑` returns the newest message and its skill only into an empty draft.
+    Mid-turn Enter as steering, and cancelling a skill read already in progress, remain separate
+    work.
+24. **Independent status projections — complete.** STL-3 separates prospective context errors,
+    acknowledged accounting and path facts, and status-command execution; resume keeps MDL-4's
+    default and MDL-1/BUD-3 retain codec admission. The user confirmed the partial status; the
+    [combined frames](../evidence/status-line.md#rendered-projections) await their confirmation.
+25. **Transcript group boundaries — complete.** TR-6 makes group spacing one measured rule shared
+    by height, scrolling and hover, with the one standard gap the user approved
+    ([frames](../evidence/transcript-layout.md#reviewed-frames)).
+26. **Conversation tree readability — complete.** TRE-2/TRE-6 derive links, folding and head
+    anchors from the retained message tree; the user accepted the native interaction on 2026-09-13
+    ([frames](../evidence/conversation-tree.md#native-validation)).
+27. **Markdown and syntax theme — complete.** MD-5/MD-6: bounded syntax roles for Rust, Python,
+    JSON, JavaScript/TypeScript and Shell in the existing palette, each grammar compiled once per
+    process; selection keeps colours and emphasis
+    ([frames](../evidence/markdown.md#native-syntax-validation)). The user has not yet reviewed the
+    theme in their terminal.
+28. **A model switch degrades — awaits the user's terminal test.** The
     [stage plan](../plans/phase-04-stage-28-model-switch-degrades.md) owns the rule that a wire
     encoder carries what the destination dialect accepts instead of refusing an output whose replay
     sidecars another model produced. MDL-1 and PRV-3 change: a switch is no longer refused for
     anything in the conversation's past, a finished thought the destination cannot replay is carried
     as text, an interrupted one is still omitted, and tool-call ids take a shape every dialect
     accepts. COM-3's route reports what a switch cost, when it cost anything.
-
-29. **Compaction declines instead of paying to find out — complete.** A conversation inside its
-    retention window has nothing in front of that tail, and CPL-3 now answers so before the
-    summarizer is asked; `/compact --force` asks again with that gate removed, and nothing past it
-    changes. Publication stopped refusing a replacement for coming back larger, because size is an
-    estimate and quality is unread. CMC-2 gained declared flags, the first in the grammar.
-
+29. **Compaction declines instead of paying to find out — complete.** CPL-3 answers before the
+    summarizer is asked when a conversation is inside its retention window; `/compact --force`
+    removes that gate, CMC-2's first declared flag. Publication no longer refuses a replacement for
+    coming back larger, because size is an estimate and quality is unread.
 30. **Automatic compaction is invisible — unstarted.** A checkpoint the runtime takes on its own
     reports nothing: the same operation the user can ask for, taken automatically, leaves no line
     in the conversation and the context silently halves. CPL-7 and CPL-9 name one operation with
-    two continuations; only the requested one reports. The user sees the same thing either way, so
-    the reporting surface is named for the wrong half. Needs a rendered frame first: an automatic
+    two continuations; only the requested one reports. Needs a rendered frame first: an automatic
     checkpoint lands mid-turn, between a submitted message and its answer, where a requested one
     lands after the last entry.
-
-31. **Test evidence says what kind it is — complete.** Measuring the stage's own claims before
-    acting on them refuted two. `provisioning_process_death_recovers_one_exact_passive_child` was
-    not a Tier 4 test to relegate but a broken handshake: the fixture created its readiness marker
-    and then filled it, while the reader took existence for completeness and parsed the contents.
-    Publishing the marker by rename fixed it, and CTL-1, COL-4, COL-5, CHB-2 and CHB-3 have real
-    proof again across three evidence documents. It costs 50 ms of a 15.77 s workspace suite while
-    its permission-store sibling costs 4.16 s unmentioned, so `standards/testing.md` now places a
-    test by cost and determinism rather than by mechanism, and states the handshake rule beside its
-    readiness-signal rule. Both that rule and the flaky rule stopped pointing at a lane CI does not
-    have, since `verify` runs `cargo test` and all seven smoke scripts in one job. Of 40 script
-    citations in evidence tables, the four that did not name what the script proves now do.
-
-32. **Inspection stops sharing the control slot — complete.** SCH-2 already required inspection and
-    control to hold separate bounded lanes; the writer had one of capacity one carrying both, so any
-    command in flight refused every read as busy and nine `plexmaton-cli` call sites reported that
-    as fatal. A delegation under load ended the session, which is what failed the delegate smoke
-    script on `main`. Reads now wait on their own lane, carrying no mutation to hand back, while the
-    control slot keeps its refusal so a mutation retains its exact attempt.
-
-The status-line adapter does not bundle the approval repair or logo animation.
-Independent lossless session export/import belongs to this phase as unstarted follow-up work.
-JRN-3/PRV-3 prove JSONL save, reopen and exact compatible replay only; an export/import journey
-and its replay disclosure policy remain unproven. MCP remains optional later integration.
-Rejected: treating JSONL round trips as independent export/import acceptance.
-
-33. **Provider-side tools — complete.** A model declares the hosted tools its route accepts
-    (PRV-6), the harness forwards the declaration, and a provider-run search is a transcript row in
-    its own colour that appears where the provider began it and finishes once (PRV-5, ENT-2). The
-    harness never runs the search. The [spike](../spikes/provider-side-tools/README.md) keeps the
-    live measurements of the one route this was proven on, including that the route delivers a
-    whole turn at once. Where hosted-tool spend belongs in the cost surface stays open in
-    [ui-ux](../ui-ux.md) §open questions.
-
+31. **Test evidence says what kind it is — complete.** A readiness marker is now published by
+    rename, which restored real proof for CTL-1, COL-4, COL-5, CHB-2 and CHB-3;
+    [testing](../standards/testing.md) places a test by cost and determinism rather than by
+    mechanism and states the handshake rule beside its readiness-signal rule.
+32. **Inspection stops sharing the control slot — complete.** SCH-2's inspection and control lanes
+    are separate: reads wait on their own, while the control slot keeps its refusal so a mutation
+    retains its exact attempt.
+33. **Provider-side tools — complete.** A model declares the hosted tools its route accepts (PRV-6)
+    and a provider-run search is a row in its own colour where the provider began it (PRV-5, ENT-2);
+    the harness never runs the search. The [spike](../spikes/provider-side-tools/README.md) keeps
+    the one route's live measurements. Where hosted-tool spend belongs in the cost surface stays
+    open in [ui-ux](../ui-ux.md) §open questions.
 34. **Conversation chrome — complete.** The user's turn sits on a band behind a blue `›`, and the
     composer's rule names the model and its effort (COM-4). The activity line moves on the one
     [motion](../specs/motion.md) clock and reads the turn's time without the user's waits, the
     effort, and the primary's quiet; idle, it gives its rows back (COM-5). Chosen from rendered
-    candidates in the [spike](../spikes/conversation-chrome/README.md); the user reviewed the band at
-    [120](../../crates/plexmaton-tui/frames/user-message-120.svg),
-    [88](../../crates/plexmaton-tui/frames/user-message-88.svg),
-    [60](../../crates/plexmaton-tui/frames/user-message-60.svg) and
-    [hovered](../../crates/plexmaton-tui/frames/user-message-120-hover.svg), and the activity line in
-    their own terminal.
+    candidates in the [spike](../spikes/conversation-chrome/README.md); the user reviewed the band's
+    [frames](../evidence/transcript-entry.md) and the activity line in their own terminal.
 
-Other roadmap work in performance, math and extensibility receives a stage when its evidence is
-ready; this phase opening does not claim those capabilities have started.
+Independent lossless session export and import belongs to this phase as unstarted follow-up work:
+JRN-3/PRV-3 prove only JSONL save, reopen and exact compatible replay. Rejected: treating JSONL round
+trips as export/import acceptance. MCP remains optional later integration. Other roadmap work in
+performance, math and extensibility receives a stage when its evidence is ready.
 
 ## Exit gate
 

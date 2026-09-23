@@ -54,10 +54,15 @@ takes no rows. The label is derived from the semantic projection; the composer's
 it. The readings are dated as the workspace applies events and drawn for the motion clock's
 instant, so they never move the semantic revision. Elapsed counts the primary's turn, from when it
 opens until it ends: it carries through the gaps between steps and stops while an approval or a
-question holds the turn on the user. Quiet hears only the primary's own events, never a child's,
-and says nothing while the turn waits on the user. The row's right end holds the selection note
-(SEL-2) and the attention pill (ATT-1); while its rows are closed the selection note rides the
-status row instead (ui-ux §input).
+question holds the turn on the user. Quiet appears after five seconds with nothing from the
+primary's own events, never a child's, and says nothing while the turn waits on the user. A short
+row drops effort, then quiet, then elapsed. The row opens with the mark: the Nerd Font's circle,
+rounded square and square, outline then filled, in blue for the agent's own work and the
+server-tool colour while a provider-run search is the work, standing still in the action-required
+colour while approval is required; it moves on the one visible-only clock (MOT-1, MOT-3). The
+row's right end holds the selection note (SEL-2) and the attention pill (ATT-1); while its rows are
+closed the selection note rides the status row instead (ui-ux §input). Rejected: current work on
+the composer's rule, which mixed the agent's doing with the user's typing.
 
 **COM-6 — Input selection names editable source.** A click places the caret; dragging retains a
 grapheme-boundary anchor, paints the source range, and release copies it through SEL-4. Typing or

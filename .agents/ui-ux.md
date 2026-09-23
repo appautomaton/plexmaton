@@ -157,17 +157,11 @@ other rule about input follows from this one.
   blank row between it and the composer: `Thinking`, `Responding`, `Running <tool>`, or `Approval
   required`. It follows semantic state; action required outranks ambient work. Idle with nothing
   waiting, it takes no rows, so the last reply sits one blank row from the composer; the rows open
-  and close only with the conversation's own facts, never with the pointer, and while they are
-  closed the selection note rides the status row's right end. While the agent works the row opens
-  with the mark's core moving, then the label, then in muted text how long the turn has run, not
-  counting its waits on the user, and at what effort, and after five seconds with nothing arriving
-  from the agent's own route, how long it has been quiet; a short row drops effort, then quiet, then
-  elapsed. The mark cycles the Nerd Font's circle, rounded
-  square and square, outline then filled, and wears blue, the server-tool colour while a
-  provider-run search is the work, and stands still in the action-required colour while approval is
-  required. Motion runs on the one visible-only clock the effort rail shares
-  ([motion](./specs/motion.md)); it changes presentation only. Show the approval label in the
-  visible primary card; otherwise in the activity line. Rejected: duplicate labels on adjacent
+  and close only with the conversation's own facts, never with the pointer. While the agent works
+  the mark's core moves, and after the label the row says how long the turn has run, not counting
+  its waits on the user, at what effort, and how long the agent's own route has been quiet. Show the
+  approval label in the visible primary card; otherwise in the activity line. COM-5 owns the
+  readings and the mark, [motion](./specs/motion.md) the clock. Rejected: duplicate labels on adjacent
   lines; a row kept blank while idle, which left a hole under the last reply; opening the rows for a
   selection note, which lifted the conversation under the reader's drag; a still row, which during a
   thirty-second silent turn read as a hang; a count that restarts with each step, which never
@@ -288,12 +282,11 @@ terminals with the fewest rows.
   transcript can be scanned for them. Opaque provider replay is never a visible transcript
   entry (PRV-3).
   Reasoning's trailing empty lines do not expand the gap before the next entry (ENT-1).
-- A canonical diff keeps its source `+`/`-` markers. Added lines use new-information, removed lines
-  use failure, hunk headers use accent, and the patch envelope is muted. Selecting the entry adds the
-  selection treatment without erasing those roles; unknown diff text remains undecorated source.
+- A canonical diff keeps its source `+`/`-` markers and their colours, selected or not; unknown diff
+  text remains undecorated source. [Transcript entry](./specs/transcript-entry.md) owns the roles.
 - Typeset math is the primary presentation; source is an interaction layer for inspect and copy, and
   a clear failure representation.
-- Workspace colour is seventeen semantic roles; widgets name a role, never a terminal colour, and
+- Workspace colour is eighteen semantic roles; widgets name a role, never a terminal colour, and
   a palette is a complete assignment of them. Colour says what a thing is and weight says what
   reads first; the row `Enter` acts on carries both (`Chosen`), and what stays quiet is a
   low-saturation hue with no weight on it. Document italic is a separate vocabulary with its own
@@ -487,11 +480,10 @@ The roster of sub-agents, above the user's own conversation.
   [glyph vocabulary](../crates/plexmaton-tui/frames/agents-strip-tally.txt) once every request is
   answered, and [narrow](../crates/plexmaton-tui/frames/agents-strip-narrow.txt), where there is no
   strip at all.
-- `Ctrl-B` puts it away and brings it back, and costs the conversation no column either way. Narrow
-  has no strip: `Agents ^B` sits in the reserved conversation-top row carrying `!n` only while a
-  child is shown, and `Ctrl-B` or a complete click opens the full-region navigator — the same rows
-  with the whole screen to spend. Arrows move a temporary cursor there; `Enter` or a row click
-  commits it, `Escape` or `Ctrl-B` restores exact prior focus without changing the preference.
+- The strip can be put away and brought back, costing the conversation no column either way.
+  Narrow has no strip: `Agents ^B` sits in the reserved conversation-top row, carrying `!n` only
+  while a child is shown, and opens a full-region navigator over the same rows; leaving it restores
+  exact prior focus. [Interaction routing](./specs/interaction-routing.md) owns the keys.
   Rejected: a shelf over a maximized child, a fixed column, and a band that made Agents yield first.
 
 ## Responsive layout classes
