@@ -12,3 +12,9 @@ resolves every one against the source, so a renamed or deleted test fails the bu
 | TR-4 | `a_followed_viewport_moves_with_its_content_and_a_parked_one_does_not`, `a_conversation_scrolled_back_to_the_end_keeps_up_and_a_parked_one_stays_put`, `scrolling_clamps_to_the_content_and_reports_a_boundary_as_no_movement` |
 | TR-5 | `each_conversation_keeps_its_own_reading_position` |
 | TR-6 | `transcript_group_boundaries_share_spacing_and_hover_geometry`, `closing_a_tool_group_changes_spacing_without_rewrapping_its_body`, `group_separator_drag_copies_visible_text_in_both_directions`, `mixed_group_windows_and_anchors_share_the_composed_rows`, `tool_feedback_closes_the_group_without_a_second_separator` |
+
+## Reviewed frames
+
+TR-6's one standard gap between tool groups and messages, which the user approved, at
+[120](../../crates/plexmaton-tui/frames/status-projection/combined-120.svg), [95](../../crates/plexmaton-tui/frames/status-projection/combined-95.svg) and
+[60](../../crates/plexmaton-tui/frames/status-projection/combined-60.svg) columns.

@@ -10,3 +10,13 @@ resolves every one against the source, so a renamed or deleted test fails the bu
 | STL-2 | `status_command_reads_snapshot_eof_and_returns_only_styled_text`; `status_command_failure_timeout_overflow_and_cancellation_are_bounded`; `status_shutdown_joins_descendants_after_a_dropped_poll`; `status_refresh_coalesces_without_cancelling_inflight_work`; `status_cleanup_waits_through_permission_denial_until_group_disappears`; `status_cleanup_never_accepts_persistent_permission_denial_as_disappearance`; `status_stale_cleanup_failure_blocks_replacement_and_remains_visible`; `status_configuration_stays_outside_the_model_registry`; `status_cleanup_error_does_not_hide_session_shutdown_failures`; `python3 scripts/smoke-statusline.py` |
 | STL-3 | `status_snapshot_default_thinking_is_explicitly_null`, `status_snapshot_projects_accounting_without_prompt_or_config_and_reloads_identically`; `status_snapshot_keeps_unknown_cache_subsets_and_measurements_null`; `status_snapshot_isolates_accounting_overflow`; `status_snapshot_isolates_invalid_selected_path`; `status_context_refusals_are_typed_and_content_free`; `status_script_context_diagnostics_are_content_free_and_pending_is_quiet`; `status_resume_reads_another_dialects_history_without_losing_observed_facts`; `recorded_luna_cache_usage_survives_http_journal_resume_and_shell`; `status_script_omits_null_fields_and_keeps_rainbow_path`; `status_script_context_uses_reported_input_with_a_glyph_at_each_width`; `cancelled_model_end_during_attempt_terminal_append_keeps_the_active_owner` |
 | STL-4 | `status_footer_preserves_focus_and_uses_the_last_row_for_hints`; `status_footer_clipping_reserves_a_cell_before_a_wide_grapheme`; visual frames at 120/95/60 columns approved by the user; `python3 scripts/smoke-statusline.py` |
+
+## Rendered projections
+
+The actual workspace footer, drawn by the
+[preview](../../crates/plexmaton-tui/examples/status_projection_preview.rs), with a partial status
+reaching the shell at [120](../../crates/plexmaton-tui/frames/status-projection/partial-120.svg),
+[95](../../crates/plexmaton-tui/frames/status-projection/partial-95.svg) and [60](../../crates/plexmaton-tui/frames/status-projection/partial-60.svg) columns,
+which the user confirmed; and beside tool, reasoning and answer cells at
+[120](../../crates/plexmaton-tui/frames/status-projection/combined-120.svg), [95](../../crates/plexmaton-tui/frames/status-projection/combined-95.svg) and
+[60](../../crates/plexmaton-tui/frames/status-projection/combined-60.svg), which await the user's confirmation.

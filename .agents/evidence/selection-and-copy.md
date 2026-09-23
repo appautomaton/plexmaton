@@ -15,6 +15,11 @@ resolves every one against the source, so a renamed or deleted test fails the bu
 | SEL-8 | `clipboard_replacement_reaps_before_delivering_only_the_latest_source`, `clipboard_shutdown_reaps_a_blocked_writer_and_never_starts_pending_copy`, `clipboard_shutdown_before_polling_starts_no_process`, `oversized_copy_preserves_the_admitted_pending_source_without_terminal_effects`, `clipboard_wait_never_holds_the_production_input_and_frame_loop`, `status_cleanup_error_does_not_hide_session_shutdown_failures`; reintroducing the inline helper wait fails the production-loop witness |
 | SEL-6 | `an_edge_drag_scrolls_and_copies_entries_that_started_off_screen`, `drag_autoscroll_activates_on_the_content_row_beside_chrome` |
 
+## Rendered selection
+
+A cross-entry drag at [wide](../../crates/plexmaton-tui/frames/text-selection-wide.txt), [medium](../../crates/plexmaton-tui/frames/text-selection-medium.txt)
+and [narrow](../../crates/plexmaton-tui/frames/text-selection-narrow.txt).
+
 ## Rendered feedback
 
 SEL-5 composition and Ctrl-J drafts were inspected at
