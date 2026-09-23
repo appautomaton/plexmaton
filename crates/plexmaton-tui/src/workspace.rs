@@ -45,6 +45,8 @@ mod effort;
 #[cfg(test)]
 mod effort_tests;
 #[cfg(test)]
+mod greeting_tests;
+#[cfg(test)]
 mod group_spacing_tests;
 mod hover;
 #[cfg(test)]
@@ -224,6 +226,8 @@ pub struct Workspace {
     copy: copy::CopyPreparation,
     native: crate::math::NativeFrame,
     motion: Option<motion::Motion>,
+    /// When the launch greeting began, while it plays; the motion clock carries it forward.
+    greeting: Option<Instant>,
 }
 
 impl Workspace {

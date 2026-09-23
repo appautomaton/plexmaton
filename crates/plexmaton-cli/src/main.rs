@@ -249,6 +249,20 @@ async fn run(
     if let Some(path) = working_directory {
         workspace.set_working_directory(path);
     }
+    // The mark is squared against the terminal's own cell, when it reports one in pixels.
+    workspace.set_cell_size(
+        crossterm::terminal::window_size()
+            .ok()
+            .filter(|window| window.columns > 0 && window.rows > 0)
+            .map(|window| plexmaton_tui::mark::CellSize {
+                width: window.width / window.columns,
+                height: window.height / window.rows,
+            }),
+    );
+    // Launch greets a new conversation once; a reopened one is not greeted (ui-ux §input).
+    if recovery.is_none() {
+        workspace.greet(std::time::Instant::now());
+    }
     // A resumed root puts every delegation it already created back on the roster without waking
     // any of them (CHB-3), and merges shared entries at their durable session anchors before the
     // restoration confirmation takes its final presentation position (ENT-1/JRN-5).

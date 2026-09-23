@@ -8,6 +8,7 @@ mod command_inspection;
 mod configuration;
 pub(crate) mod conversation_tree;
 pub(crate) mod effort;
+pub(crate) mod mark;
 mod message_actions;
 mod panel;
 pub(crate) mod permission_review;
@@ -311,6 +312,21 @@ fn conversation_body(
     // scroll path resolves against the same one rather than against whatever was measured last.
     let width = inner_width(area.width);
     if metrics.measure_with(agent, palette, width, state.disclosure()) == 0 {
+        // Launch's greeting plays over the empty primary conversation, then leaves it as it was.
+        if surface == SurfaceId::Transcript
+            && let Some(moment) = state.greeting_moment()
+        {
+            return Body::Whole {
+                lines: mark::greeting_lines(
+                    moment,
+                    state.cell_size(),
+                    visible_rows,
+                    width,
+                    palette,
+                ),
+                follows_tail: false,
+            };
+        }
         return Body::Whole {
             lines: agent.note.as_ref().map_or_else(
                 || content::conversation_placeholder(palette, surface, true),

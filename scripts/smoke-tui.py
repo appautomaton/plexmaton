@@ -243,6 +243,12 @@ output_reserve_tokens = 5000
         _, full_frame = repaint(master, captured, EXPECTED_ON_FULL_FRAME)
         click(master, CLICK_IN_RESIZED_COMPOSER, captured, cursor=True)
         repaint(master, captured, EXPECTED_ON_FULL_FRAME)
+        # Launch greets a new conversation for about 2.5 s, repainting as it moves; a check that
+        # nothing repaints waits for the braille mark to leave.
+        read_until(master, captured,
+                   lambda: not any("\u2800" <= glyph <= "\u28ff"
+                                   for glyph in rendered_screen(bytes(captured), RESIZED)),
+                   timeout=5.0, description="launch's greeting to leave")
         on_chrome = click(master, CLICK_IN_STATUS, captured)
         on_transcript = click(master, CLICK_IN_TRANSCRIPT, captured, cursor=False)
 

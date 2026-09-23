@@ -2,10 +2,10 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented for the effort rail and the activity line's mark |
+| Status | Implemented for the effort rail, the activity line's mark and launch's greeting |
 | Owns | When anything in the workspace moves, what a moving frame may change, and the one clock it runs on |
 | Depends on | FR-1 and FR-3 in [frame-loop](./frame-loop.md); EFF-4 in [reasoning-effort](./reasoning-effort.md) as the first thing that moves |
-| Proven by | `plexmaton-tui::workspace` effort tests and `plexmaton-tui::render` activity-mark tests |
+| Proven by | `plexmaton-tui::workspace` effort and greeting tests and `plexmaton-tui::render` activity-mark and mark tests |
 
 ## Invariants
 
@@ -28,3 +28,7 @@ clock was doing.
 The phase is a count, not a time: renderers derive their frame from it, so two moving things on
 screen stay in step. The effort rail's marker and the activity line's mark each complete a cycle every
 1.6 s, the mark over seven frames holding unequal numbers of its 24 phases.
+
+Launch's greeting is not a cycle. It counts the clock's phases from the instant launch greeted,
+plays its 38 once (ui-ux §input), and then, or at the conversation's first entry, stops for good
+and wakes the clock no more; the braille mark it draws is one cell a glyph (MOT-2).
