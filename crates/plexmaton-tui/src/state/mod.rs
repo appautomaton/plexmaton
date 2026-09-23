@@ -1,3 +1,4 @@
+mod activity;
 mod agent;
 mod approval;
 mod asking;
@@ -39,6 +40,7 @@ use std::collections::BTreeMap;
 
 use plexmaton_core::{AgentId, EventSequence};
 
+pub(crate) use activity::elapsed_label;
 pub use agent::AgentView;
 pub(crate) use approval::ApprovalTarget;
 pub use approval::{
@@ -138,6 +140,8 @@ pub struct ViewState {
     composer_menu: composer_menu::ComposerMenu,
     /// The shared motion clock's phase (MOT-1); presentation reads it, semantics never do.
     motion_phase: u16,
+    /// When current work began and was last heard; presentation only.
+    activity: activity::ActivityClock,
     inspector: Inspector,
     /// Which semantic entries the user opened, plus the one under the pointer.
     disclosure: DisclosureState,

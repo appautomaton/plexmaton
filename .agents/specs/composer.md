@@ -47,12 +47,17 @@ production snapshot delivery and focused child routing are accepted by `scripts/
 The product retains an addressed child submission before cold activation or journal work and
 returns any later refusal to that same worker composer.
 
-**COM-5 — Current work is derived and static.** The conversation's activity line, its last row
-above the composer's top rule, shows at most one label: `Approval required` outranks
-`Running <tool>`, then `Responding`, then `Thinking`; idle shows none. The label is derived from
-the semantic projection and owns no timer; the composer's rules never carry it. The same row's
-right end holds the selection note (SEL-5) and the attention pill (ATT-1), which no longer have a
-border to ride (ui-ux §input).
+**COM-5 — Current work is derived; its readings are presentation.** The conversation's activity
+line, over one blank row above the composer's top rule, shows at most one label: `Approval
+required` outranks `Running <tool>`, then `Responding`, then `Thinking`; idle with nothing waiting
+takes no rows. The label is derived from the semantic projection; the composer's rules never carry
+it. The readings are dated as the workspace applies events and drawn for the motion clock's
+instant, so they never move the semantic revision. Elapsed counts the primary's turn, from when it
+opens until it ends: it carries through the gaps between steps and stops while an approval or a
+question holds the turn on the user. Quiet hears only the primary's own events, never a child's,
+and says nothing while the turn waits on the user. The row's right end holds the selection note
+(SEL-2) and the attention pill (ATT-1); while its rows are closed the selection note rides the
+status row instead (ui-ux §input).
 
 **COM-6 — Input selection names editable source.** A click places the caret; dragging retains a
 grapheme-boundary anchor, paints the source range, and release copies it through SEL-4. Typing or
@@ -91,7 +96,7 @@ Ctrl-C ──▶ non-empty draft ──▶ clear
 | --- | --- |
 | Place | Directly under the primary conversation, between two rules (ui-ux §input): the top rule carries the title and the resolved model's reasoning effort, then the lines, then the bottom rule. The columns a box's sides would spend stay blank, so the caret and the pointer keep a box's geometry |
 | Height | One row per wrapped line, at the width of the conversation column it actually occupies, up to a third of the terminal's height and never fewer than three; a taller draft shows the window containing the caret, which is its newest lines until `↑`/`↓` or the wheel over the composer walk the caret out of them |
-| Current work | One semantic suffix in the existing divider; action required uses its role and other work is ambient |
+| Current work | Never on the composer's rules: the conversation's activity line names it (COM-5) |
 | On a short terminal | Served before the notice strip and the agent list: a workspace that cannot be typed into is not a supported shape |
 | While a sub-agent's input holds the cursor | One row over the bottom rule, `Message Agent A · ⇥ to return`: no top rule, no title, still a focus stop and a pointer target. `Tab` from that input lands on it, because the composer follows the second window in the focus ring |
 

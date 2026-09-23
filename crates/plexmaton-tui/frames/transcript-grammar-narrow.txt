@@ -4,6 +4,7 @@
 │                                                          │
 │                                                          │
 │                                                          │
+│                                                          │
 │ › Change the colour constant and show me the patch       │
 │   you applied.                                           │
 │                                                          │
@@ -33,7 +34,6 @@
 │  │ -pub const COLOR: &str = "blue";                      │
 │  │ +pub const COLOR: &str = "pastel";                    │
 │  │ *** End Patch                                         │
-│                                                          │
 ── Message ─────────────────────────────────────────────────
  Type a message · ⇥ to focus                                
 ────────────────────────────────────────────────────────────

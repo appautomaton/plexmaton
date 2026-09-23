@@ -39,10 +39,10 @@ pub(super) fn panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel
         edges: Edges::All,
         chrome: Chrome::Box,
         insets,
-        footer: Some(Line::styled(
+        footer: Some(vec![Line::styled(
             "c copy · ↑↓ scroll · Esc back",
             palette.style(Role::Muted),
-        )),
+        )]),
     }
 }
 

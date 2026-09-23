@@ -252,7 +252,7 @@ Visual changes are reviewed against real frames before the contract adopts them.
     queues above the composer. `Alt-↑` restores the newest message and its explicit skill only
     into an empty primary draft; an occupied draft preserves both messages and advertises the
     precondition. Completed skill preparation wakes the projection without requiring provider
-    output or another key. The activity row meets the waiting rule without an extra blank row.
+    output or another key. The waiting rule follows the activity line's own blank row.
     The user delegated completion on 2026-09-12; the agent reviewed the existing design and these
     fixes, and [ui-ux](../ui-ux.md) adopts the resulting input/state grammar. Reviewed frames at
     [wide](../../crates/plexmaton-tui/frames/input-queue-wide.txt),

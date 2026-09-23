@@ -1,5 +1,6 @@
 use ratatui::{Frame, layout::Rect, widgets::Clear};
 
+pub(crate) mod activity;
 pub(crate) mod agents_handle;
 mod child_control;
 mod chrome;
@@ -97,42 +98,49 @@ pub fn render(
             SurfaceId::Agents => Some(agents_panel(state, palette, bounds)),
             // The primary conversation carries its own box, the same as the roster's and the
             // inspected child's: with two conversations on one screen, a bare one reads as
-            // background rather than as a place, and its hue has no edge to say whose it is. Its
-            // last row stays the activity line, carrying the selection note and the attention pill
-            // as the box's footer rather than instead of a border (ui-ux §input).
-            SurfaceId::Transcript => Some(Panel {
-                insets: crate::surface::ContentInsets::default(),
-                chrome: Chrome::Box,
-                footer: Some(chrome::activity_line(
+            // background rather than as a place, and its hue has no edge to say whose it is. While
+            // there is work or a request it ends in the activity line over a blank row, carrying the
+            // selection note and the attention pill as the box's footer rather than instead of a
+            // border; idle, it ends in its last reply (ui-ux §input).
+            SurfaceId::Transcript => {
+                let footer = activity::activity_footer(
                     state,
                     palette,
                     inner_width(bounds.width),
                     state.approval_in_primary() && surfaces.get(SurfaceId::Approval).is_some(),
-                )),
-                body: conversation_body(
-                    state,
-                    palette,
-                    metrics,
-                    bounds,
-                    id,
-                    stacking.over_composer(SurfaceId::Transcript),
-                    1,
-                ),
-                title: chrome::conversation_title(state, palette, inner_width(bounds.width)),
-                badge: None,
-                edges: stacking.over_composer(SurfaceId::Transcript),
-            }),
+                );
+                let footer_rows = footer
+                    .as_ref()
+                    .map_or(0, |lines| u16::try_from(lines.len()).unwrap_or(u16::MAX));
+                Some(Panel {
+                    insets: crate::surface::ContentInsets::default(),
+                    chrome: Chrome::Box,
+                    footer,
+                    body: conversation_body(
+                        state,
+                        palette,
+                        metrics,
+                        bounds,
+                        id,
+                        stacking.over_composer(SurfaceId::Transcript),
+                        footer_rows,
+                    ),
+                    title: chrome::conversation_title(state, palette, inner_width(bounds.width)),
+                    badge: None,
+                    edges: stacking.over_composer(SurfaceId::Transcript),
+                })
+            }
             // The inspected agent's conversation uses the same unified entry grammar as the
             // primary: the workspace shows one conversation, and the journey needs it to show two.
             SurfaceId::Inspector => Some(Panel {
                 insets: crate::surface::ContentInsets::default(),
                 chrome: Chrome::Box,
-                footer: Some(child_control::footer(
+                footer: Some(vec![child_control::footer(
                     state,
                     palette,
                     inner_width(bounds.width),
                     has_focus,
-                )),
+                )]),
                 body: conversation_body(
                     state,
                     palette,
@@ -171,7 +179,12 @@ pub fn render(
                 Some(composer_panel(state, palette, has_focus, bounds, &stacking))
             }
             SurfaceId::Status => {
-                render_status(frame, state, palette, bounds);
+                let activity_shown = activity::activity_shows(
+                    state,
+                    palette,
+                    state.approval_in_primary() && surfaces.get(SurfaceId::Approval).is_some(),
+                );
+                render_status(frame, state, palette, bounds, activity_shown);
                 None
             }
         };
@@ -346,7 +359,8 @@ mod tests {
     };
 
     use super::{
-        chrome::{activity_line, block_with, composer_title},
+        activity::activity_line,
+        chrome::{block_with, composer_title},
         panel::{Body, Chrome, Edges, Panel, draw_panel},
     };
 
@@ -438,6 +452,47 @@ mod tests {
         ink(style)
     }
 
+    /// The activity line from its label onward, without the right-hand pill.
+    fn reading(state: &ViewState, width: u16) -> String {
+        let line = activity_line(state, &Palette::default(), width, false).to_string();
+        let label = line.find("Thinking…").expect("the label is on the row");
+        line[label..]
+            .split("( !")
+            .next()
+            .unwrap_or_default()
+            .trim_end()
+            .to_owned()
+    }
+
+    /// ui-ux §input: while work runs the row reads elapsed time, effort and, after five silent
+    /// seconds, how long it has been quiet; a short row drops effort, then quiet, then elapsed.
+    #[test]
+    fn the_activity_line_reads_elapsed_effort_and_quiet_and_drops_them_in_order() {
+        let mut state = canonical_state();
+        state.set_model(crate::test_support::configuration_summary());
+        let started = std::time::Instant::now();
+        state.observe_activity(started, true);
+        state.tick_activity(started + std::time::Duration::from_secs(12));
+        let effort = crate::test_support::configuration_summary().reasoning_effort;
+        assert_eq!(
+            reading(&state, 80),
+            format!(
+                "Thinking… · 12s · {} effort · quiet for 12s",
+                effort.as_str()
+            )
+        );
+        assert_eq!(reading(&state, 48), "Thinking… · 12s · quiet for 12s");
+        assert_eq!(reading(&state, 30), "Thinking… · 12s");
+        assert_eq!(reading(&state, 18), "Thinking…");
+
+        state.observe_activity(started + std::time::Duration::from_secs(12), true);
+        assert_eq!(
+            reading(&state, 80),
+            format!("Thinking… · 12s · {} effort", effort.as_str()),
+            "just heard: nothing to say about quiet"
+        );
+    }
+
     /// COM-5: the activity line names each current-work state in its role, idle draws nothing,
     /// and the composer's rule never carries any of it (ui-ux §input).
     #[test]
@@ -450,12 +505,18 @@ mod tests {
             .unwrap_or_else(|| panic!("the canonical scenario creates a primary agent"));
         let assert_activity = |state: &ViewState, expected: &str, role: Role| {
             let line = activity_line(state, &palette, 80, false);
+            let mark = super::activity::MARK[0];
             assert!(
-                line.to_string().starts_with(expected),
-                "{expected:?} leads the activity line: {line}"
+                line.to_string().starts_with(&format!("{mark} {expected}")),
+                "the mark then {expected:?} lead the activity line: {line}"
             );
             assert_eq!(
-                line.spans[1].style,
+                line.spans[0].style,
+                palette.style(Role::SurfacePrimary),
+                "the mark wears the user's own hue"
+            );
+            assert_eq!(
+                line.spans[2].style,
                 palette.style(role),
                 "the current-work label must carry {role:?}"
             );
@@ -466,11 +527,11 @@ mod tests {
             );
         };
 
-        assert_activity(&canonical, "· Thinking…", Role::Ambient);
-        assert_activity(&current_responding_state(), "· Responding…", Role::Ambient);
+        assert_activity(&canonical, "Thinking…", Role::Ambient);
+        assert_activity(&current_responding_state(), "Responding…", Role::Ambient);
         assert_activity(
             &current_running_tool_state(),
-            "· Running read_file…",
+            "Running read_file…",
             Role::Ambient,
         );
 
@@ -492,8 +553,17 @@ mod tests {
             },
         });
         let line = activity_line(&approval.state, &palette, 80, false);
-        assert!(line.to_string().starts_with("· Approval required"));
-        assert_eq!(line.spans[1].style, palette.style(Role::ActionRequired));
+        assert!(
+            line.to_string()
+                .starts_with(&format!("{} Approval required", super::activity::MARK[0])),
+            "approval stands still on the mark's first frame: {line}"
+        );
+        assert_eq!(line.spans[0].style, palette.style(Role::ActionRequired));
+        assert_eq!(line.spans[2].style, palette.style(Role::ActionRequired));
+        assert!(
+            !line.to_string().contains(" · "),
+            "no readings while the user is the one being waited on: {line}"
+        );
         assert!(
             line.to_string().trim_end().ends_with("( !2 )"),
             "the pill counts both unanswered requests at the activity line's right end: {line}"
@@ -543,12 +613,13 @@ mod tests {
                     viewport.is_scrollable(),
                     "the fixture has to overflow at {width}x{height} or this proves nothing"
                 );
-                // The conversation's last row is its activity line, not content (ui-ux §input);
-                // the reference paints only the rows the conversation itself occupies.
+                // The conversation's last two rows are its activity line and the blank row under
+                // it, not content (ui-ux §input); the reference paints only the conversation's rows.
                 let painted = session.region(SurfaceId::Transcript);
-                let (conversation, _activity) = painted
-                    .rsplit_once('\n')
-                    .unwrap_or_else(|| panic!("the region has an activity row under it"));
+                let rows: Vec<&str> = painted.lines().collect();
+                assert!(rows.len() > 2, "the region has an activity footer under it");
+                let conversation = rows[..rows.len() - 2].join("\n");
+                let conversation = conversation.as_str();
                 let reference = whole_conversation(
                     &session.conversation.state,
                     &Palette::default(),
@@ -589,9 +660,9 @@ mod tests {
         );
         // The conversation is boxed and open at the bottom, so its own border spends the top row
         // and the side columns and the content needs no padding of its own; the activity row is
-        // the panel's footer and stays out of the reference.
+        // the panel's footer, with the blank row beneath it, and stays out of the reference.
         let bounds = Rect {
-            height: bounds.height.saturating_sub(1),
+            height: bounds.height.saturating_sub(2),
             ..bounds
         };
         let paragraph = Paragraph::new(lines)
@@ -1396,9 +1467,9 @@ mod tests {
                 .get(SurfaceId::Transcript)
                 .expect("the conversation is registered at wide")
                 .bounds;
-            // The pill rides the activity line, the conversation's last row (ui-ux §input).
+            // The pill rides the activity line, above the conversation's last, blank row (ui-ux §input).
             let border = Rect {
-                y: conversation.bottom().saturating_sub(1),
+                y: conversation.bottom().saturating_sub(2),
                 height: 1,
                 ..conversation
             };

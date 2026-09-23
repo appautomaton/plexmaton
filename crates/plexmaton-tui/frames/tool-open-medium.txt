@@ -20,7 +20,6 @@
 │                                                                                             │
 │                                                                                             │
 │                                                                                             │
-│                                                                                             │
 │[+] exec_command · succeeded                                                                 │
 │  invocation                                                                                 │
 │  │ Command "cargo test -p plexmaton-tui"                                                    │
@@ -33,7 +32,8 @@
 │  │ 197 tests passed                                                                         │
 │  │ stderr:                                                                                  │
 │  │ [empty]                                                                                  │
-│· Thinking…                                                                                  │
+│󰝦 Thinking…                                                                                  │
+│                                                                                             │
 ── Message ────────────────────────────────────────────────────────────────────────────────────
  Type a message · ⇥ to focus                                                                   
 ───────────────────────────────────────────────────────────────────────────────────────────────

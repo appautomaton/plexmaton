@@ -201,7 +201,7 @@ pub(super) fn panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel
     Panel {
         insets: crate::surface::ContentInsets::default(),
         chrome: Chrome::Box,
-        footer: Some(footer),
+        footer: Some(vec![footer]),
         body: Body::Window {
             lines,
             // The semantic row slice is already resolved above; only the viewport metadata uses

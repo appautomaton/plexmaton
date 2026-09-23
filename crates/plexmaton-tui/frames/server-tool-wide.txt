@@ -14,7 +14,6 @@
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
-│                                                                                                                      │
 │ › What is the latest stable Rust release, and when did it ship?                                                      │
 │                                                                                                                      │
 │reasoning                                                                                                             │
@@ -33,7 +32,8 @@
 │Rust 1.98.1 is the latest stable release. It is a point release over 1.98.0, and the release post on the Rust         │
 │blog lists what it fixes.                                                                                             │
 │                                                                                                                      │
-│· Running web_search…                                                                                                 │
+│󰝦 Running web_search…                                                                                                 │
+│                                                                                                                      │
 ── Message ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
  Type a message · ⇥ to focus                                                                                            
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

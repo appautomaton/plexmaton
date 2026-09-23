@@ -14,10 +14,10 @@ use ratatui::{
 };
 
 use super::panel::{Chrome, Edges};
+
 use crate::{
     ViewState, content,
     layout::{MIN_HEIGHT, MIN_WIDTH},
-    state::CurrentWork,
     surface::SurfaceId,
     theme::{Palette, Role},
 };
@@ -107,55 +107,17 @@ pub(super) fn attention_pill(state: &ViewState, palette: &Palette) -> Option<Lin
     ]))
 }
 
-/// The conversation's last row: what the agent is doing on the left; what the reader has
-/// selected and what is still waiting on them on the right (ui-ux §input, COM-5, SEL-5, ATT-1).
-///
-/// Derived from the same facts the composer's divider used to carry, and drawn where the
-/// conversation ends rather than where the user types, so the two never read as one thing.
-pub(super) fn activity_line(
-    state: &ViewState,
-    palette: &Palette,
-    width: u16,
-    approval_visible: bool,
-) -> Line<'static> {
-    let work = match state.current_work() {
-        None => None,
-        Some(CurrentWork::Thinking) => Some(("Thinking…".to_owned(), Role::Ambient)),
-        Some(CurrentWork::Responding) => Some(("Responding…".to_owned(), Role::Ambient)),
-        Some(CurrentWork::RunningTool(tool)) => Some((format!("Running {tool}…"), Role::Ambient)),
-        Some(CurrentWork::ApprovalRequired) if approval_visible => None,
-        Some(CurrentWork::ApprovalRequired) => {
-            Some(("Approval required".to_owned(), Role::ActionRequired))
-        }
-        Some(CurrentWork::Compacting) => Some(("Compacting…".to_owned(), Role::Ambient)),
-    };
-    let mut left = Vec::new();
-    if let Some((text, role)) = work {
-        left.push(Span::styled("· ", palette.style(Role::Muted)));
-        left.push(Span::styled(text, palette.style(role)));
-    }
-    let mut right = Vec::new();
-    let selected = selected_suffix(state, SurfaceId::Transcript);
-    if let Some(note) = selected.strip_prefix(" · ") {
-        right.push(Span::styled(note.to_owned(), palette.style(Role::Muted)));
-    }
-    if let Some(pill) = attention_pill(state, palette) {
-        right.extend(pill.spans);
-    }
-    let used = Line::from(left.clone()).width() + Line::from(right.clone()).width();
-    let gap = usize::from(width).saturating_sub(used);
-    let mut spans = left;
-    if !right.is_empty() {
-        spans.push(Span::raw(" ".repeat(gap)));
-        spans.extend(right);
-    }
-    Line::from(spans)
+/// What the primary conversation's selection note says, without its separator.
+pub(super) fn selection_note(state: &ViewState) -> Option<String> {
+    selected_suffix(state, SurfaceId::Transcript)
+        .strip_prefix(" · ")
+        .map(str::to_owned)
 }
 
 /// What a surface says about the selection it is holding.
 ///
 /// The retained selection is separate from transient transport feedback in the status row (SEL-5).
-fn selected_suffix(state: &ViewState, surface: SurfaceId) -> String {
+pub(super) fn selected_suffix(state: &ViewState, surface: SurfaceId) -> String {
     if let Some(note) = state.copy_note(surface) {
         use crate::state::CopyNote;
         return match note {
@@ -183,9 +145,9 @@ fn selected_suffix(state: &ViewState, surface: SurfaceId) -> String {
 ///
 /// The composer's rule below says whom the next message addresses; this says what is being read.
 /// The two are the same name until a child's window is open, which is exactly when telling them
-/// apart matters. The lifecycle and the selection note ride
-/// the activity line at the other end of the same box, and saying them twice in one frame would
-/// make the box noisier than the bare conversation it replaced.
+/// apart matters. The lifecycle and the selection note ride the activity line at the other end of
+/// the same box, or the status row while that line is closed, and saying them twice in one frame
+/// would make the box noisier than the bare conversation it replaced.
 pub(super) fn conversation_title(
     state: &ViewState,
     palette: &Palette,
@@ -305,6 +267,7 @@ pub(super) fn render_status(
     state: &ViewState,
     palette: &Palette,
     area: Rect,
+    activity_shown: bool,
 ) {
     let status = state.status();
     match status.footer() {
@@ -344,7 +307,7 @@ pub(super) fn render_status(
         crate::state::Footer::Default => {}
     }
     if status.armed().is_none() && !matches!(status.footer(), crate::state::Footer::Default) {
-        render_copy_receipt(frame, state, palette, area);
+        render_copy_receipt(frame, state, palette, area, activity_shown);
         return;
     }
     // An armed question may need a second row; the cwd baseline never does.
@@ -371,16 +334,32 @@ pub(super) fn render_status(
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), area);
-    render_copy_receipt(frame, state, palette, area);
+    render_copy_receipt(frame, state, palette, area, activity_shown);
 }
 
-fn render_copy_receipt(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette, area: Rect) {
+/// The status row's right end: a copy receipt, or, while the activity line is closed, what the
+/// reader has selected, so selection feedback never has to open rows in the conversation.
+fn render_copy_receipt(
+    frame: &mut Frame<'_>,
+    state: &ViewState,
+    palette: &Palette,
+    area: Rect,
+    activity_shown: bool,
+) {
     if state.status().armed().is_some() || area.is_empty() {
         return;
     }
+    let note;
     let text = match state.status().copy_receipt() {
         Some(crate::CopyReceipt::Copied) => " ✓ Copied ",
         Some(crate::CopyReceipt::Sent) => " Copy sent ",
+        None if !activity_shown => match selection_note(state) {
+            Some(selected) => {
+                note = format!(" {selected} ");
+                note.as_str()
+            }
+            None => return,
+        },
         None => return,
     };
     let width = (Line::raw(text).width() as u16).min(area.width);

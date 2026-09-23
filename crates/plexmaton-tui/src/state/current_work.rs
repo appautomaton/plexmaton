@@ -13,6 +13,8 @@ pub(crate) enum CurrentWork<'a> {
     Thinking,
     Responding,
     RunningTool(&'a str),
+    /// A tool the provider runs on its own side, named as its row is.
+    RunningServerTool(&'a str),
     ApprovalRequired,
     /// A compaction the user asked for owns the summarizer (CPL-9).
     Compacting,
@@ -46,13 +48,13 @@ impl<'a> CurrentWork<'a> {
                 TranscriptEntryView::Tool(tool)
                     if tool.status == ToolCallStatus::Running && running_tool.is_none() =>
                 {
-                    running_tool = Some(tool.label.as_str());
+                    running_tool = Some(Self::RunningTool(tool.label.as_str()));
                 }
                 // A call the provider is still running is work in progress like any tool's.
                 TranscriptEntryView::ServerTool(view)
                     if view.call.is_none() && running_tool.is_none() =>
                 {
-                    running_tool = Some(view.tool.name());
+                    running_tool = Some(Self::RunningServerTool(view.tool.name()));
                 }
                 TranscriptEntryView::Text(item)
                     if item.role == TranscriptRole::Assistant && !item.finalized =>
@@ -78,8 +80,8 @@ impl<'a> CurrentWork<'a> {
             return Some(Self::Compacting);
         }
 
-        if let Some(tool) = running_tool {
-            return Some(Self::RunningTool(tool));
+        if running_tool.is_some() {
+            return running_tool;
         }
 
         if agent.status != AgentStatus::Running {
@@ -202,7 +204,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("fixture: {error}"));
         assert_eq!(
             CurrentWork::derive(&searching, std::iter::empty(), false),
-            Some(CurrentWork::RunningTool("web_search"))
+            Some(CurrentWork::RunningServerTool("web_search"))
         );
         searching
             .note_server_tool(
@@ -219,7 +221,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("fixture: {error}"));
         assert_ne!(
             CurrentWork::derive(&searching, std::iter::empty(), false),
-            Some(CurrentWork::RunningTool("web_search"))
+            Some(CurrentWork::RunningServerTool("web_search"))
         );
     }
 

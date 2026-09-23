@@ -70,6 +70,7 @@ mod preparation_tests;
 mod pressed;
 #[cfg(test)]
 mod pressed_tests;
+mod producer;
 mod retry;
 #[cfg(test)]
 mod skill_menu_tests;
@@ -291,38 +292,6 @@ impl Workspace {
     #[must_use]
     pub const fn frames(&self) -> u64 {
         self.frames
-    }
-
-    /// Applies producer events to the projection.
-    ///
-    /// A producer contract violation is a visible, typed notice inside the projection rather than a
-    /// reason to tear down the user's terminal (`state::notices`), so nothing is returned to check
-    /// here.
-    pub fn emit(&mut self, events: Vec<ConversationEventEnvelope>) {
-        let before = self.state.revision();
-        for envelope in events {
-            let _outcome = self.state.apply(envelope);
-        }
-        if self.state.revision() != before {
-            self.validate_text_selection();
-            self.reconcile_copy();
-            // Producer changes can move rows under a stationary pointer. The next motion resolves
-            // a fresh frame target; keeping the old identity would make the accent move with it.
-            self.state.hover_entry(None);
-        }
-    }
-
-    /// Restores user text a runtime returned instead of silently discarding its ownership.
-    pub fn return_input(&mut self, to: AgentId, text: String) {
-        self.state.return_input(to, text);
-        // Composer growth can change the transcript viewport beneath a stationary pointer.
-        self.state.hover_entry(None);
-    }
-
-    /// Restores returned text and its deliberate skill binding when the composer is otherwise empty.
-    pub fn return_skill_input(&mut self, to: AgentId, text: String, skill: Option<String>) {
-        self.state.return_skill_input(to, text, skill);
-        self.state.hover_entry(None);
     }
 
     /// Anchors a saved-grant receipt beside its tool without changing semantic copy or events.
@@ -1419,7 +1388,8 @@ mod tests {
         let activity = |terminal: &Terminal<TestBackend>, workspace: &Workspace| {
             painted(terminal, workspace, SurfaceId::Transcript)
                 .lines()
-                .last()
+                .rev()
+                .nth(1)
                 .unwrap_or_default()
                 .to_owned()
         };
@@ -1446,9 +1416,10 @@ mod tests {
 
         assert_eq!(bounds(&workspace, SurfaceId::Transcript), transcript);
         assert_eq!(bounds(&workspace, SurfaceId::Composer), composer);
+        // Idle closes the activity line's rows, so no row of the conversation is it any longer.
         assert!(
-            !activity(&terminal, &workspace).contains("Thinking"),
-            "idle draws nothing on the activity line"
+            !painted(&terminal, &workspace, SurfaceId::Transcript).contains("Thinking…"),
+            "idle names no work anywhere in the conversation"
         );
 
         conversation.emit(ConversationEvent::AgentStatusChanged {

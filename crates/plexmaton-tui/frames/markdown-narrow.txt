@@ -13,6 +13,7 @@
 │                                                          │
 │                                                          │
 │                                                          │
+│                                                          │
 │ › Show **Markdown** and a Rust example.                  │
 │                                                          │
 │Build summary                                             │
@@ -40,7 +41,6 @@
 │Note: offline                                             │
 │                                                          │
 │See the docs (https://example.com/docs).                  │
-│                                                          │
 │                                                          │
 ── Message ─────────────────────────────────────────────────
  Type a message · ⇥ to focus

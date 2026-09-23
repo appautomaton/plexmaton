@@ -5,12 +5,12 @@
 | Phase | [Phase 04](../phases/phase-04-product-polish.md) stage 34 |
 | Contract | [ui-ux](../ui-ux.md) §transcript grammar and its activity-line rule; EFF-4 in [reasoning-effort](../specs/reasoning-effort.md); FR-1 in [frame-loop](../specs/frame-loop.md); TR-6 in [transcript-layout](../specs/transcript-layout.md); SEL-1 and SEL-2 in [selection-and-copy](../specs/selection-and-copy.md) |
 | Evidence | [Conversation chrome spike](../spikes/conversation-chrome/README.md): the rendered candidates the user chose from and the survey of three other CLIs |
-| Status | Slices 1–3 of 5 implemented and locally verified |
+| Status | Slices 1–4 of 5 implemented and locally verified |
 
 ## Outcome
 
 The user's turn is told by its surface rather than by a shout, and a working agent is told by a
-row that moves and says only what is known: how long the step has run, at what effort, and how long
+row that moves and says only what is known: how long the turn has run, at what effort, and how long
 the route has been quiet. Both are presentation. Removing either changes no journal entry, no
 request and no replay.
 
@@ -38,15 +38,20 @@ MOT-1 to MOT-3 live in [motion](../specs/motion.md), promoted when the motion ow
    of view state where every renderer reads it. The effort rail is its first user with no change in
    behaviour. Closed by the effort tests passing unchanged and
    `mot_1_one_deadline_serves_every_mover_and_late_wakes_coalesce`.
-4. **Activity line.** The row opens with the mark's core moving, then the label, then muted `· 11s ·
-   high effort`, and after five seconds without a model event `· quiet for 31s`. Elapsed reads
-   `11s`, `2m 11s`, `1h 2m`. The mark wears blue, the server-tool colour while a provider-run search
-   is the work, and stands still in the action-required colour while approval is required. The
-   core's cycle is the outline morph the user chose in the spike; whether Unicode geometric shapes
-   or the Nerd Font's Material Design outlines draw it, and at what length, is the user's call once
-   their terminal font settles, recorded there. Closes with frames for thinking, responding, running
-   tool, running search, approval, compacting and quiet at three widths; MOT-2 for the cycle; MOT-3
-   as a test that a tick advances no semantic revision.
+4. **Activity line — implemented.** The row opens with the mark, then the label, then muted
+   readings: elapsed across the turn, stopped while an approval or a question waits on the user, the
+   effort, and after five seconds with nothing from the primary's own route `quiet for`, which a
+   child's stream does not interrupt. Elapsed reads `11s`, `2m 11s`, `1h 2m`; a short row drops
+   effort, then quiet, then elapsed. The mark is the Nerd Font's circle, rounded square and square,
+   outline then filled, eight frames at 200 ms, which the user chose in their own terminal over the
+   Unicode cycles that shook. It wears blue, the server-tool colour while a hosted search runs, and
+   stands still in the action-required colour during approval. The readings are presentation: events
+   are dated as they are applied and the motion clock supplies the instant a frame is drawn for.
+   After the user's first look in kitty the row gained a blank row beneath it and gives up its rows
+   when idle with nothing waiting; a selection note never opens them, and rides the status row while
+   they are closed. Closed by refreshed current-work frames, the readings, turn-count, child-quiet
+   and footer-rows tests, the selection drags that no longer move, MOT-2 for the mark, and the
+   activity smokes.
 5. **Documents.** Evidence tables current; SVG review of the frames attached; this plan deleted;
    the phase row says done.
 

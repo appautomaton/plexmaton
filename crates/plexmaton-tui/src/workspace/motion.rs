@@ -21,7 +21,7 @@ pub(super) struct Motion {
 impl Workspace {
     /// Whether any visible cell moves. Each moving thing answers for its own visibility.
     fn moving(&self) -> bool {
-        self.effort_moving()
+        self.effort_moving() || self.state.activity_moves()
     }
 
     /// Arm the one shared deadline while anything visible moves; nothing moving owns no wake.
@@ -55,6 +55,7 @@ impl Workspace {
         let phase =
             (now.saturating_duration_since(motion.start).as_millis() * 15 / 1000 % CYCLE) as u16;
         motion.next = now + TICK;
+        self.state.tick_activity(now);
         if phase != self.state.motion_phase() {
             self.state.set_motion_phase(phase);
             self.painted = None;

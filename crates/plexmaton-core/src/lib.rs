@@ -47,6 +47,30 @@ pub use transcript::{
 pub use usage::{TokenCounts, TokenUsage};
 
 impl ConversationEvent {
+    /// The conversation whose projection holds this fact.
+    #[must_use]
+    pub fn agent(&self) -> &AgentId {
+        match self {
+            Self::AgentCreated { agent_id, .. }
+            | Self::AgentStatusChanged { agent_id, .. }
+            | Self::TurnUsageUpdated { agent_id, .. }
+            | Self::TranscriptItemStarted { agent_id, .. }
+            | Self::TranscriptDelta { agent_id, .. }
+            | Self::TranscriptItemFinalized { agent_id, .. }
+            | Self::ToolCallChanged { agent_id, .. }
+            | Self::ServerToolStarted { agent_id, .. }
+            | Self::ServerToolCalled { agent_id, .. }
+            | Self::AttentionRequested { agent_id, .. }
+            | Self::AttentionResolved { agent_id, .. }
+            | Self::TaskAssigned { agent_id, .. }
+            | Self::MailDelivered { agent_id, .. }
+            | Self::HandoffCompleted { agent_id, .. }
+            | Self::ArtifactAnnounced { agent_id, .. }
+            | Self::RuntimeWarning { agent_id, .. }
+            | Self::RuntimeError { agent_id, .. } => agent_id,
+        }
+    }
+
     /// The conversation whose projection holds this fact, so a reader can re-address it.
     ///
     /// A delegated child numbers its own conversation and names itself by its own agent identity.

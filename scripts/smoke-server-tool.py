@@ -112,7 +112,7 @@ output_reserve_tokens = 4096
         with Terminal(project, environment, "server-tool", "placement") as terminal:
             terminal.wait(COMPOSER)
             screen = terminal.prompt("What is the latest stable Rust release?", "SMOKE_ANSWER", "[+] web_search · Rust 1.98.1 release",
-                                     absent=("Preparing text", "Running web_search", "· Thinking"))
+                                     absent=("Preparing text", "Running web_search", " Thinking…"))
             # Placed where the provider put them: between the narration lines, not after the answer.
             order(screen, "SMOKE_FIRST", "[+] web_search", "SMOKE_SECOND", "[+] web_search · Rust 1.98.1 release", "SMOKE_ANSWER")
             assert "󱌣 2" in screen, screen
